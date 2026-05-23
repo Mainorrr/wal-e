@@ -30,6 +30,12 @@ interface TransactionContextValue {
   triggerRecovery: () => Promise<{ beforeState: unknown; afterState: unknown } | null>;
   clearWal: () => Promise<void>;
   loadDemo: () => Promise<void>;
+  executeQuery: (engineId: string, query: string, tid?: string) => Promise<{
+    success: boolean;
+    data?: unknown;
+    error?: string;
+    isMutation?: boolean;
+  }>;
 }
 
 const TransactionContext = createContext<TransactionContextValue | null>(null);
@@ -153,6 +159,12 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
     setWalEntries(entries as WalEntry[]);
   }, [refreshStatus]);
 
+  const executeQuery = useCallback(async (engineId: string, query: string, tid?: string) => {
+    const result = await window.api.executeQuery(engineId, query, tid);
+    await refreshStatus();
+    return result;
+  }, [refreshStatus]);
+
   return (
     <TransactionContext.Provider value={{
       currentTid,
@@ -174,6 +186,7 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
       triggerRecovery,
       clearWal,
       loadDemo,
+      executeQuery,
     }}>
       {children}
     </TransactionContext.Provider>

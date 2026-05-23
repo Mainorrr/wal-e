@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { CodeDisplay } from './CodeDisplay';
 import { ResultsTable } from './ResultsTable';
 import { useEngine } from '../../context/EngineContext';
 
 export function QueryEditor() {
   const { activeEngineId, engines } = useEngine();
+  const [queryResult, setQueryResult] = useState<{ data: unknown; isMutation: boolean } | null>(null);
   const activeEngine = engines.find((e) => e.id === activeEngineId);
   const isMongo = activeEngine?.type === 'nosql';
 
@@ -20,8 +22,8 @@ export function QueryEditor() {
           </div>
         </div>
       </div>
-      <CodeDisplay />
-      <ResultsTable isMongo={isMongo} />
+      <CodeDisplay onResult={(data, isMutation) => setQueryResult({ data, isMutation })} />
+      <ResultsTable isMongo={isMongo} queryResult={queryResult} />
     </div>
   );
 }

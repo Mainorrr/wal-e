@@ -1,6 +1,7 @@
 import { WalManager, LogEntry } from './WalManager';
 import { ConnectionManager } from '../engines/ConnectionManager';
 import type { RecoveryProtocol as RecoveryProtocolType, DataSnapshot, MutationData } from '../types';
+import { parseMutationQuery, buildBeforeImageQuery, buildAfterImage, buildMutationSql } from './QueryParser';
 
 export type RecoveryProtocol = RecoveryProtocolType;
 
@@ -64,16 +65,75 @@ export class TransactionManager {
     const protocol = this.currentProtocol;
     const bufferKey = `${tid}:${mutationData.op}:${Date.now()}`;
 
+    if (protocol === 'No-Undo/Redo' || protocol === 'Undo/Redo') {
+      this.dirtyPagesBuffer.set(bufferKey, mutationData);
+    }
+  }
+
+  public async executeMutationFromQuery(tid: string, engineId: string, query: string): Promise<MutationData> {
+    const txState = this.activeTransactions.get(tid);
+    if (!txState) {
+      throw new Error(`Transaction ${tid} not found. Begin a transaction first.`);
+    }
+
+    const engine = this.connectionManager.getEngine(engineId);
+    if (!engine) {
+      throw new Error(`Engine ${engineId} not connected`);
+    }
+
+    const parsed = parseMutationQuery(query);
+    if (!parsed) {
+      throw new Error(`Invalid mutation query: ${query}`);
+    }
+
+    let beforeImage: DataSnapshot = null;
+    if (parsed.op !== 'INSERT') {
+      const beforeQuery = buildBeforeImageQuery(parsed);
+      if (beforeQuery) {
+        const result = await engine.executeQuery(beforeQuery);
+        if (result.success && result.data) {
+          if (Array.isArray(result.data) && result.data.length > 0) {
+            beforeImage = result.data[0] as DataSnapshot;
+          } else if (result.data && typeof result.data === 'object') {
+            beforeImage = result.data as DataSnapshot;
+          }
+        }
+      }
+    }
+
+    const afterImage = buildAfterImage(beforeImage, parsed);
+
+    const mutationData: MutationData = {
+      op: parsed.op,
+      table_or_collection: parsed.tableOrCollection,
+      before_image: beforeImage,
+      after_image: afterImage,
+    };
+
+    this.wal.writeEntry({
+      tid,
+      op: mutationData.op,
+      table_or_collection: mutationData.table_or_collection,
+      before_image: mutationData.before_image,
+      after_image: mutationData.after_image,
+      engine_id: engineId,
+    });
+
+    const protocol = this.currentProtocol;
+    const bufferKey = `${tid}:${mutationData.op}:${Date.now()}`;
+
     if (protocol === 'No-Undo/No-Redo') {
-      this.flushToDisk(tid, mutationData);
+      await this.flushToDisk(tid, mutationData, parsed);
     } else if (protocol === 'No-Undo/Redo') {
       this.dirtyPagesBuffer.set(bufferKey, mutationData);
     } else if (protocol === 'Undo/No-Redo') {
-      this.flushToDisk(tid, mutationData);
+      await this.flushToDisk(tid, mutationData, parsed);
       this.dirtyPagesBuffer.set(bufferKey, mutationData);
     } else if (protocol === 'Undo/Redo') {
       this.dirtyPagesBuffer.set(bufferKey, mutationData);
     }
+
+    return mutationData;
   }
 
   public commitTransaction(tid: string): void {
@@ -190,14 +250,28 @@ export class TransactionManager {
     return new Map(this.dirtyPagesBuffer);
   }
 
-  private flushToDisk(tid: string, mutationData: MutationData): void {
+  private async flushToDisk(tid: string, mutationData: MutationData, parsed?: ReturnType<typeof parseMutationQuery>): Promise<void> {
     const txState = this.activeTransactions.get(tid);
     if (!txState) return;
     const engine = this.connectionManager.getEngine(txState.engineId);
-    if (engine) {
-      // TODO: Build actual SQL/operation from mutationData and execute via engine
-      void engine;
-      void mutationData;
+    if (!engine) return;
+
+    if (parsed) {
+      const sql = buildMutationSql(parsed);
+      if (sql) {
+        await engine.executeQuery(sql);
+      }
+    } else {
+      const sql = buildMutationSql({
+        op: mutationData.op,
+        tableOrCollection: mutationData.table_or_collection || '',
+        setClause: mutationData.after_image as Record<string, unknown>,
+        filter: mutationData.before_image as Record<string, unknown>,
+        isMongo: false,
+      });
+      if (sql) {
+        await engine.executeQuery(sql);
+      }
     }
   }
 

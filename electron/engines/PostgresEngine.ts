@@ -34,10 +34,15 @@ export class PostgresEngine implements IBaseEngine {
     this.connected = false;
   }
 
-  async executeQuery(_query: string): Promise<QueryResult> {
+  async executeQuery(query: string): Promise<QueryResult> {
     if (!this.connected || !this.pool) {
       return { success: false, data: null, error: 'PostgresEngine: not connected' };
     }
-    return { success: true, data: [] };
+    try {
+      const result = await this.pool.query(query);
+      return { success: true, data: result.rows };
+    } catch (error) {
+      return { success: false, data: null, error: (error as Error).message };
+    }
   }
 }
