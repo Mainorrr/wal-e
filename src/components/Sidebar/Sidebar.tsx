@@ -6,9 +6,19 @@ import { MaterialSymbol } from '../shared/MaterialSymbol';
 
 export function Sidebar() {
   const { engines, activeEngineId } = useEngine();
-  const { protocol, setProtocol, activeTransactions } = useTransaction();
+  const { protocol, setProtocol, activeTransactions, selectedTid, setSelectedTid, setActiveView } = useTransaction();
 
   const activeEngine = engines.find((e) => e.id === activeEngineId);
+
+  const handleTxClick = (tid: string) => {
+    if (selectedTid === tid) {
+      setSelectedTid(null);
+      setActiveView('query');
+    } else {
+      setSelectedTid(tid);
+      setActiveView('transaction');
+    }
+  };
 
   return (
     <aside className="fixed h-full flex flex-col z-40 bg-surface-container w-[240px] left-0 top-0 border-r border-outline-variant transition-colors duration-200">
@@ -55,7 +65,15 @@ export function Sidebar() {
               Active Transactions
             </span>
             {activeTransactions.map((tx) => (
-              <div key={tx.tid} className="flex items-center gap-2 px-3 py-1.5 rounded text-code-sm">
+              <div
+                key={tx.tid}
+                onClick={() => handleTxClick(tx.tid)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded text-code-sm cursor-pointer transition-colors ${
+                  selectedTid === tx.tid
+                    ? 'bg-primary-container/20 border border-primary'
+                    : 'hover:bg-surface-container-high'
+                }`}
+              >
                 <span className="w-1.5 h-1.5 rounded-full bg-secondary" />
                 <span className="font-code-md text-primary">{tx.tid}</span>
                 <span className="text-on-surface-variant text-[10px] ml-auto">

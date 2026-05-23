@@ -8,7 +8,11 @@ interface TransactionContextValue {
   activeTransactions: Array<{ tid: string; engineId: string; status: string }>;
   dirtyPages: Array<[string, MutationData]>;
   walEntries: WalEntry[];
+  selectedTid: string | null;
+  activeView: 'query' | 'transaction' | 'recovery';
   setTid: (tid: string) => void;
+  setSelectedTid: (tid: string | null) => void;
+  setActiveView: (view: 'query' | 'transaction' | 'recovery') => void;
   begin: (tid: string, engineId: string) => Promise<{ success: boolean; error?: string }>;
   execute: (tid: string, mutationData: MutationData) => Promise<{ success: boolean; error?: string }>;
   commit: (tid: string) => Promise<{ success: boolean; error?: string }>;
@@ -28,6 +32,8 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
   const [activeTransactions, setActiveTransactions] = useState<Array<{ tid: string; engineId: string; status: string }>>([]);
   const [dirtyPages, setDirtyPages] = useState<Array<[string, MutationData]>>([]);
   const [walEntries, setWalEntries] = useState<WalEntry[]>([]);
+  const [selectedTid, setSelectedTid] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<'query' | 'transaction' | 'recovery'>('query');
 
   const refreshStatus = useCallback(async () => {
     const status = await window.api.getTransactionStatus();
@@ -108,7 +114,11 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
       activeTransactions,
       dirtyPages,
       walEntries,
+      selectedTid,
+      activeView,
       setTid: setCurrentTid,
+      setSelectedTid,
+      setActiveView,
       begin,
       execute,
       commit,
