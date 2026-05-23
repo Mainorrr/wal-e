@@ -11,21 +11,20 @@ export function CodeDisplay({ onResult }: CodeDisplayProps) {
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
   const { activeEngineId } = useEngine();
-  const { executeQuery, allTransactions, currentTid, selectedTid } = useTransaction();
+  const { executeQuery, allTransactions, selectedTid } = useTransaction();
+
+  const selectedTx = allTransactions.find((t) => t.tid === selectedTid);
+  const isTxActive = selectedTx?.status === 'ACTIVE';
+  
+  const tid = selectedTid;
+  const canRun = activeEngineId && tid && isTxActive;
 
   const handleRun = async () => {
-    if (!activeEngineId || !query.trim()) return;
+    if (!canRun || !query.trim()) return;
     setError(null);
 
-    const tid = selectedTid || currentTid || allTransactions.find((t) => t.status === 'ACTIVE')?.tid;
-
-    if (!tid) {
-      setError('No active transaction. Click a transaction in the sidebar or click BEGIN first.');
-      return;
-    }
-
     try {
-      const result = await executeQuery(activeEngineId, query, tid);
+      const result = await executeQuery(activeEngineId!, query, tid!);
       if (!result.success) {
         setError(result.error || 'Query failed');
       } else if (onResult) {
@@ -40,11 +39,14 @@ export function CodeDisplay({ onResult }: CodeDisplayProps) {
     <div className="flex-1 overflow-auto bg-surface-container-lowest p-4 font-code-md text-code-md">
       <div className="flex justify-end mb-2 gap-2">
         {error && <span className="text-error text-[10px] mr-2">{error}</span>}
+        {!canRun && (
+          <span className="text-[10px] text-yellow-600 mr-2">Select an active transaction to run queries</span>
+        )}
         <button
           onClick={handleRun}
-          className="flex items-center gap-1 px-3 py-1 bg-primary-container text-on-primary-container text-[11px] font-bold rounded hover:opacity-90 transition-opacity"
+          className={`flex items-center gap-1 px-3 py-1 text-[11px] font-bold rounded transition-opacity ${canRun ? 'bg-primary-container text-on-primary-container hover:opacity-90' : 'bg-surface-container text-outline opacity-50 cursor-not-allowed'}`}
           title="Execute query"
-          disabled={!activeEngineId}
+          disabled={!canRun}
         >
           <MaterialSymbol icon="play_arrow" size={16} />
           Run
@@ -53,9 +55,10 @@ export function CodeDisplay({ onResult }: CodeDisplayProps) {
       <textarea
         value={query}
         onChange={(e) => setQuery(e.target.value)}
+        disabled={!canRun}
         spellCheck={false}
-        className="w-full h-full bg-transparent text-on-surface-variant resize-none outline-none font-code-md text-code-md leading-[24px]"
-        placeholder={"Write your query here... (e.g. UPDATE estudiantes SET nota = 90 WHERE carne = '812345')"}
+        className={`w-full h-full bg-transparent resize-none outline-none font-code-md text-code-md leading-[24px] ${canRun ? 'text-on-surface-variant' : 'text-outline opacity-50'}`}
+        placeholder={canRun ? "Write your query here... (e.g. UPDATE estudiantes SET nota = 90 WHERE carne = '812345')" : "Select a transaction to enable query editing..."}
       />
     </div>
   );

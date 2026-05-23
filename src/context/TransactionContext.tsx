@@ -108,6 +108,9 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
 
   const begin = useCallback(async (tid: string, engineId: string) => {
     const result = await window.api.beginTransaction(tid, engineId);
+    if (result.success) {
+      setSelectedTid(tid);
+    }
     await refreshStatus();
     return result;
   }, [refreshStatus]);
