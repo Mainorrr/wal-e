@@ -4,9 +4,10 @@ import { useRef } from 'react';
 import { MaterialSymbol } from '../shared/MaterialSymbol';
 
 export function ActionButtons() {
-  const { currentTid, setTid, begin, commit, rollback, triggerCrash, triggerRecovery, loadDemo } = useTransaction();
+  const { currentTid, setTid, begin, commit, rollback, triggerCrash, triggerRecovery, loadDemo, activeTransactions } = useTransaction();
   const { activeEngineId } = useEngine();
   const tidCounter = useRef(0);
+  const hasActiveTransaction = activeTransactions.length > 0;
 
   const handleBegin = async () => {
     if (!activeEngineId) return;
@@ -22,11 +23,13 @@ export function ActionButtons() {
   const handleCommit = async () => {
     if (!currentTid) return;
     await commit(currentTid);
+    setTid('');
   };
 
   const handleRollback = async () => {
     if (!currentTid) return;
     await rollback(currentTid);
+    setTid('');
   };
 
   const handleCrash = async () => {
@@ -46,7 +49,8 @@ export function ActionButtons() {
       <div className="flex items-center bg-surface-container-high rounded p-1">
         <button
           onClick={handleBegin}
-          className="px-4 py-1.5 text-[11px] font-bold bg-primary-container text-on-primary-container hover:opacity-90 transition-opacity rounded-sm"
+          disabled={hasActiveTransaction}
+          className={`px-4 py-1.5 text-[11px] font-bold bg-primary-container text-on-primary-container hover:opacity-90 transition-opacity rounded-sm ${hasActiveTransaction ? 'opacity-40 cursor-not-allowed' : ''}`}
         >
           BEGIN
         </button>
