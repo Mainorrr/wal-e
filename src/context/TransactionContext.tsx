@@ -67,7 +67,7 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
       else status = 'PENDIENTE';
       result.push({
         tid,
-        engineId: txEntries[0]?.engineId ?? 'unknown',
+        engineId: txEntries[0]?.engine_id ?? 'unknown',
         status,
       });
     }

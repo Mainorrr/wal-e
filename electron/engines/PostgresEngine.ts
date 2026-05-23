@@ -39,7 +39,9 @@ export class PostgresEngine implements IBaseEngine {
       return { success: false, data: null, error: 'PostgresEngine: not connected' };
     }
     try {
+      console.log(`Executing query on PostgresEngine: ${query}`);
       const result = await this.pool.query(query);
+      console.log(`Query result: ${JSON.stringify(result.rows)}`);
       return { success: true, data: result.rows };
     } catch (error) {
       return { success: false, data: null, error: (error as Error).message };

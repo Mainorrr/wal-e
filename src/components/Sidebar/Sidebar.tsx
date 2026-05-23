@@ -1,6 +1,6 @@
 import { useEngine } from '../../context/EngineContext';
 import { useTransaction } from '../../context/TransactionContext';
-import type { TxStatus } from '../../context/TransactionContext';
+import type { DisplayTransaction } from '../../context/TransactionContext';
 import { NodeButton } from './NodeButton';
 import { ProtocolSelect } from './ProtocolSelect';
 import { MaterialSymbol } from '../shared/MaterialSymbol';
@@ -24,18 +24,19 @@ function getStatusTextColor(status: TxStatus): string {
 }
 
 export function Sidebar() {
-  const { engines, activeEngineId } = useEngine();
+  const { engines, activeEngineId, setActive } = useEngine();
   const { protocol, setProtocol, allTransactions, selectedTid, setSelectedTid, setActiveView } = useTransaction();
 
   const activeEngine = engines.find((e) => e.id === activeEngineId);
 
-  const handleTxClick = (tid: string) => {
-    if (selectedTid === tid) {
+  const handleTxClick = (tx: DisplayTransaction) => {
+    if (selectedTid === tx.tid) {
       setSelectedTid(null);
       setActiveView('query');
     } else {
-      setSelectedTid(tid);
+      setSelectedTid(tx.tid);
       setActiveView('transaction');
+      setActive(tx.engineId);
     }
   };
 
@@ -86,7 +87,7 @@ export function Sidebar() {
             {allTransactions.map((tx) => (
               <div
                 key={tx.tid}
-                onClick={() => handleTxClick(tx.tid)}
+                onClick={() => handleTxClick(tx)}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded text-code-sm cursor-pointer transition-colors ${
                   selectedTid === tx.tid
                     ? 'bg-primary-container/20 border border-primary'

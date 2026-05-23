@@ -11,15 +11,21 @@ export function CodeDisplay({ onResult }: CodeDisplayProps) {
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
   const { activeEngineId } = useEngine();
-  const { executeQuery, allTransactions } = useTransaction();
-
-  const currentActiveTx = allTransactions.find((t) => t.status === 'ACTIVE');
+  const { executeQuery, allTransactions, currentTid, selectedTid } = useTransaction();
 
   const handleRun = async () => {
     if (!activeEngineId || !query.trim()) return;
     setError(null);
+
+    const tid = selectedTid || currentTid || allTransactions.find((t) => t.status === 'ACTIVE')?.tid;
+
+    if (!tid) {
+      setError('No active transaction. Click a transaction in the sidebar or click BEGIN first.');
+      return;
+    }
+
     try {
-      const result = await executeQuery(activeEngineId, query, currentActiveTx?.tid);
+      const result = await executeQuery(activeEngineId, query, tid);
       if (!result.success) {
         setError(result.error || 'Query failed');
       } else if (onResult) {

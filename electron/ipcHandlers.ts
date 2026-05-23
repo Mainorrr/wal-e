@@ -59,6 +59,7 @@ export function setupIPCHandlers(): void {
   ipcMain.handle('tx:execute', async (_event, args: { tid: string; mutationData: MutationData }) => {
     const { tid, mutationData } = args;
     try {
+      console.log(`Executing mutation in transaction ${tid}: ${JSON.stringify(mutationData)}`);
       transactionManager.executeMutationSimulated(tid, mutationData);
       return { success: true };
     } catch (error: unknown) {
@@ -119,6 +120,7 @@ export function setupIPCHandlers(): void {
       return { success: false, error: `Engine ${engineId} not connected` };
     }
 
+    console.log(`Received query execution request for engine ${engineId}: ${query} (tid: ${tid})`);
     if (isMutationQuery(query) && tid) {
       try {
         const mutationData = await transactionManager.executeMutationFromQuery(tid, engineId, query);
@@ -128,7 +130,6 @@ export function setupIPCHandlers(): void {
         return { success: false, error: message };
       }
     }
-
     return engine.executeQuery(query);
   });
 
