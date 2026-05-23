@@ -1,21 +1,24 @@
 import { useTransaction } from '../../context/TransactionContext';
 import { useEngine } from '../../context/EngineContext';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { MaterialSymbol } from '../shared/MaterialSymbol';
 
 export function ActionButtons() {
   const { currentTid, setTid, begin, commit, rollback, triggerCrash, triggerRecovery, loadDemo, allTransactions } = useTransaction();
   const { activeEngineId } = useEngine();
   const tidCounter = useRef(0);
+  const [isBeginning, setIsBeginning] = useState(false);
   const selectedTx = allTransactions.find((t) => t.tid === currentTid);
   const isSelectedTxActive = selectedTx?.status === 'ACTIVE';
 
   const handleBegin = async () => {
-    if (!activeEngineId) return;
+    if (!activeEngineId || isBeginning) return;
+    setIsBeginning(true);
     tidCounter.current += 1;
     const tid = `TXN-${String(tidCounter.current).padStart(4, '0')}`;
     setTid(tid);
     await begin(tid, activeEngineId);
+    setIsBeginning(false);
   };
 
   const handleCommit = async () => {

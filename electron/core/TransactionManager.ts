@@ -1,6 +1,6 @@
 import { WalManager, LogEntry } from './WalManager';
 import { ConnectionManager } from '../engines/ConnectionManager';
-import type { RecoveryProtocol as RecoveryProtocolType, DataSnapshot, MutationData } from '../types';
+import type { RecoveryProtocol as RecoveryProtocolType, DataSnapshot, MutationData, DirtyPageEntry } from '../types';
 import { parseMutationQuery, buildBeforeImageQuery, buildAfterImage, buildMutationSql } from './QueryParser';
 
 export type RecoveryProtocol = RecoveryProtocolType;
@@ -15,7 +15,7 @@ export class TransactionManager {
   private wal: WalManager;
   private connectionManager: ConnectionManager;
   private currentProtocol: RecoveryProtocol = 'No-Undo/Redo';
-  private dirtyPagesBuffer: Map<string, MutationData> = new Map();
+  private dirtyPagesBuffer: Map<string, DirtyPageEntry> = new Map();
   private activeTransactions: Map<string, TransactionState> = new Map();
 
   constructor(wal: WalManager, connectionManager: ConnectionManager) {
@@ -66,7 +66,20 @@ export class TransactionManager {
     const bufferKey = `${tid}:${mutationData.op}:${Date.now()}`;
 
     if (protocol === 'No-Undo/Redo' || protocol === 'Undo/Redo') {
-      this.dirtyPagesBuffer.set(bufferKey, mutationData);
+      this.dirtyPagesBuffer.set(bufferKey, {
+        op: mutationData.op,
+        table_or_collection: mutationData.table_or_collection || '',
+        before_image: mutationData.before_image,
+        after_image: mutationData.after_image,
+        parsedSql: buildMutationSql({
+          op: mutationData.op,
+          tableOrCollection: mutationData.table_or_collection || '',
+          setClause: mutationData.after_image as Record<string, unknown>,
+          filter: mutationData.before_image as Record<string, unknown>,
+          isMongo: false,
+        }),
+        isMongo: false,
+      });
     }
   }
 
@@ -123,23 +136,64 @@ export class TransactionManager {
     const bufferKey = `${tid}:${mutationData.op}:${Date.now()}`;
 
     if (protocol === 'No-Undo/No-Redo') {
-      await this.flushToDisk(tid, mutationData, parsed);
+      await this.flushToDisk(tid, {
+        op: parsed.op,
+        table_or_collection: parsed.tableOrCollection,
+        before_image: mutationData.before_image,
+        after_image: mutationData.after_image,
+        parsedSql: buildMutationSql(parsed),
+        isMongo: parsed.isMongo,
+      });
     } else if (protocol === 'No-Undo/Redo') {
-      this.dirtyPagesBuffer.set(bufferKey, mutationData);
+      this.dirtyPagesBuffer.set(bufferKey, {
+        op: mutationData.op,
+        table_or_collection: mutationData.table_or_collection || '',
+        before_image: mutationData.before_image,
+        after_image: mutationData.after_image,
+        parsedSql: buildMutationSql(parsed),
+        isMongo: parsed.isMongo,
+      });
     } else if (protocol === 'Undo/No-Redo') {
-      await this.flushToDisk(tid, mutationData, parsed);
-      this.dirtyPagesBuffer.set(bufferKey, mutationData);
+      await this.flushToDisk(tid, {
+        op: parsed.op,
+        table_or_collection: parsed.tableOrCollection,
+        before_image: mutationData.before_image,
+        after_image: mutationData.after_image,
+        parsedSql: buildMutationSql(parsed),
+        isMongo: parsed.isMongo,
+      });
+      this.dirtyPagesBuffer.set(bufferKey, {
+        op: mutationData.op,
+        table_or_collection: mutationData.table_or_collection || '',
+        before_image: mutationData.before_image,
+        after_image: mutationData.after_image,
+        parsedSql: buildMutationSql(parsed),
+        isMongo: parsed.isMongo,
+      });
     } else if (protocol === 'Undo/Redo') {
-      this.dirtyPagesBuffer.set(bufferKey, mutationData);
+      this.dirtyPagesBuffer.set(bufferKey, {
+        op: mutationData.op,
+        table_or_collection: mutationData.table_or_collection || '',
+        before_image: mutationData.before_image,
+        after_image: mutationData.after_image,
+        parsedSql: buildMutationSql(parsed),
+        isMongo: parsed.isMongo,
+      });
     }
 
     return mutationData;
   }
 
-  public commitTransaction(tid: string): void {
+  public async commitTransaction(tid: string): Promise<void> {
     const txState = this.activeTransactions.get(tid);
     if (!txState) {
       throw new Error(`Transaction ${tid} not found. Begin a transaction first.`);
+    }
+
+    const protocol = this.currentProtocol;
+
+    if (protocol === 'No-Undo/Redo' || protocol === 'Undo/Redo') {
+      await this.flushDirtyPages(tid);
     }
 
     this.wal.writeEntry({
@@ -148,13 +202,8 @@ export class TransactionManager {
       engine_id: txState.engineId,
       before_image: null,
       after_image: null,
+      protocol: this.currentProtocol,
     });
-
-    const protocol = this.currentProtocol;
-
-    if (protocol === 'No-Undo/Redo' || protocol === 'Undo/Redo') {
-      this.flushDirtyPages(tid);
-    }
 
     this.activeTransactions.set(tid, { ...txState, status: 'COMMITTED' });
     this.clearDirtyPagesForTransaction(tid);
@@ -246,7 +295,7 @@ export class TransactionManager {
     return Array.from(this.activeTransactions.values());
   }
 
-  public getDirtyPages(): Map<string, MutationData> {
+  public getDirtyPages(): Map<string, DirtyPageEntry> {
     return new Map(this.dirtyPagesBuffer);
   }
 
@@ -277,35 +326,21 @@ export class TransactionManager {
     return (mostRecent.protocol as RecoveryProtocol) ?? null;
   }
 
-  private async flushToDisk(tid: string, mutationData: MutationData, parsed?: ReturnType<typeof parseMutationQuery>): Promise<void> {
+  private async flushToDisk(tid: string, entry: DirtyPageEntry): Promise<void> {
     const txState = this.activeTransactions.get(tid);
     if (!txState) return;
     const engine = this.connectionManager.getEngine(txState.engineId);
     if (!engine) return;
 
-    if (parsed) {
-      const sql = buildMutationSql(parsed);
-      if (sql) {
-        await engine.executeQuery(sql);
-      }
-    } else {
-      const sql = buildMutationSql({
-        op: mutationData.op,
-        tableOrCollection: mutationData.table_or_collection || '',
-        setClause: mutationData.after_image as Record<string, unknown>,
-        filter: mutationData.before_image as Record<string, unknown>,
-        isMongo: false,
-      });
-      if (sql) {
-        await engine.executeQuery(sql);
-      }
+    if (entry.parsedSql) {
+      await engine.executeQuery(entry.parsedSql);
     }
   }
 
-  private flushDirtyPages(tid: string): void {
+  private async flushDirtyPages(tid: string): Promise<void> {
     for (const [key, value] of this.dirtyPagesBuffer) {
       if (key.startsWith(`${tid}:`)) {
-        this.flushToDisk(tid, value);
+        await this.flushToDisk(tid, value);
       }
     }
   }

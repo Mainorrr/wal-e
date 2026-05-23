@@ -75,7 +75,7 @@ export function setupIPCHandlers(): void {
   ipcMain.handle('tx:commit', async (_event, args: { tid: string }) => {
     const { tid } = args;
     try {
-      transactionManager.commitTransaction(tid);
+      await transactionManager.commitTransaction(tid);
       return { success: true, tid };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
