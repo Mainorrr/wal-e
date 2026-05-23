@@ -77,14 +77,13 @@ export class MongoEngine implements IBaseEngine {
       const collection = this.db.collection(parsed.collection);
       let result;
       switch (parsed.method) {
-        case 'find': {
-          const filter = parseJsonSafe(parsed.args[0] || '{}');
-          result = await collection.find(filter).toArray();
-          return { success: true, data: result };
-        }
+        case 'find':
         case 'findOne': {
           const filter = parseJsonSafe(parsed.args[0] || '{}');
-          result = await collection.findOne(filter);
+          const method = parsed.method === 'find' ? 'find' : 'findOne';
+          result = method === 'find'
+            ? await collection.find(filter).toArray()
+            : await collection.findOne(filter);
           return { success: true, data: result };
         }
         case 'insertOne': {

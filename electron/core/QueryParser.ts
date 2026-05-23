@@ -171,7 +171,7 @@ function parseMongoMutation(mongoMatch: RegExpMatchArray): ParsedMutation {
     return {
       op: 'UPDATE',
       tableOrCollection: collection,
-      setClause: update?.$set || update || {},
+      setClause: (update?.$set || update || {}) as Record<string, unknown>,
       filter: filter,
       isMongo: true,
     };
