@@ -114,17 +114,6 @@ export function Sidebar() {
       </nav>
 
       {showAddModal && <AddNodeModal onClose={() => setShowAddModal(false)} />}
-
-      <div className="p-4 border-t border-outline-variant space-y-1">
-        <div className="flex items-center gap-3 px-3 py-2 rounded text-on-surface-variant hover:bg-surface-container-high transition-colors cursor-pointer">
-          <MaterialSymbol icon="analytics" size={20} />
-          <span className="font-body-md text-body-md">System Health</span>
-        </div>
-        <div className="flex items-center gap-3 px-3 py-2 rounded text-on-surface-variant hover:bg-surface-container-high transition-colors cursor-pointer">
-          <MaterialSymbol icon="settings" size={20} />
-          <span className="font-body-md text-body-md">Settings</span>
-        </div>
-      </div>
     </aside>
   );
 }

@@ -28,7 +28,7 @@ const DEFAULT_NODES: ConfiguredNode[] = [
     id: 'mongodb-nodo-01',
     label: 'MongoDB Nodes',
     type: 'nosql',
-    icon: 'storage',
+    icon: 'data_object',
     config: { uri: 'mongodb://mongo:mongo@localhost:27017', database: 'wal_e' }
   }
 ];
@@ -54,7 +54,14 @@ export function EngineProvider({ children }: { children: ReactNode }) {
     const saved = localStorage.getItem('wal_e_configured_nodes');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved) as ConfiguredNode[];
+        // Migrate default nodes' metadata (icons/labels) in case the code defaults changed
+        const merged = parsed.map((n) => {
+          const def = DEFAULT_NODES.find((d) => d.id === n.id);
+          return def ? { ...n, icon: def.icon, label: def.label } : n;
+        });
+        localStorage.setItem('wal_e_configured_nodes', JSON.stringify(merged));
+        return merged;
       } catch {
         return DEFAULT_NODES;
       }

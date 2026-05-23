@@ -1,4 +1,5 @@
 import type { DataSnapshot } from '../types';
+import { parseRelaxedJson } from './jsonUtils';
 
 export type MutationOp = 'INSERT' | 'UPDATE' | 'DELETE';
 
@@ -7,6 +8,8 @@ export interface ParsedMutation {
   tableOrCollection: string;
   setClause?: Record<string, unknown>;
   insertValues?: Record<string, unknown>;
+  insertColumns?: string[];
+  insertOrderedValues?: unknown[];
   filter?: Record<string, unknown>;
   isMongo: boolean;
 }
@@ -127,12 +130,26 @@ function parseValue(valStr: string): unknown {
 function parseMongoArgs(argsStr: string): string[] {
   const args: string[] = [];
   let depth = 0;
+  let inQuote = false;
+  let quoteChar = '';
   let current = '';
   for (let i = 0; i < argsStr.length; i++) {
     const c = argsStr[i];
-    if (c === '{' || c === '[') depth++;
-    else if (c === '}' || c === ']') depth--;
-    else if (c === ',' && depth === 0) {
+    if (!inQuote && (c === '"' || c === "'")) {
+      inQuote = true;
+      quoteChar = c;
+      current += c;
+    } else if (inQuote && c === quoteChar && argsStr[i - 1] !== '\\') {
+      inQuote = false;
+      quoteChar = '';
+      current += c;
+    } else if (!inQuote && (c === '{' || c === '[')) {
+      depth++;
+      current += c;
+    } else if (!inQuote && (c === '}' || c === ']')) {
+      depth--;
+      current += c;
+    } else if (!inQuote && c === ',' && depth === 0) {
       args.push(current.trim());
       current = '';
     } else {
@@ -143,21 +160,13 @@ function parseMongoArgs(argsStr: string): string[] {
   return args;
 }
 
-function parseJsonSafe(str: string): Record<string, unknown> {
-  try {
-    return JSON.parse(str);
-  } catch {
-    return {};
-  }
-}
-
 function parseMongoMutation(mongoMatch: RegExpMatchArray): ParsedMutation {
   const collection = mongoMatch[1];
   const method = mongoMatch[2];
   const argsStr = mongoMatch[3];
   const args = parseMongoArgs(argsStr);
-  const filter = parseJsonSafe(args[0] || '{}');
-  const update = args[1] ? parseJsonSafe(args[1]) : undefined;
+  const filter = parseRelaxedJson(args[0] || '{}');
+  const update = args[1] ? parseRelaxedJson(args[1]) : undefined;
 
   if (method === 'insertOne' || method === 'insertMany') {
     return {
@@ -222,21 +231,26 @@ export function parseMutationQuery(query: string): ParsedMutation | null {
 
   const insertMatch = trimmed.match(SQL_INSERT_REGEX);
   if (insertMatch) {
-    const columns = insertMatch[2] ? insertMatch[2].split(',').map((c) => c.trim()) : [];
-    const values = splitByComma(insertMatch[3]);
+    const explicitColumns = insertMatch[2]
+      ? insertMatch[2].split(',').map((c) => c.trim())
+      : null;
+    const orderedValues = splitByComma(insertMatch[3]).map(parseValue);
     const insertValues: Record<string, unknown> = {};
-    columns.forEach((col, i) => {
-      insertValues[col] = parseValue(values[i] || 'NULL');
-    });
-    if (columns.length === 0) {
-      values.forEach((val, i) => {
-        insertValues[`col${i + 1}`] = parseValue(val);
+    if (explicitColumns) {
+      explicitColumns.forEach((col, i) => {
+        insertValues[col] = orderedValues[i] ?? null;
+      });
+    } else {
+      orderedValues.forEach((val, i) => {
+        insertValues[`col${i + 1}`] = val;
       });
     }
     return {
       op: 'INSERT',
       tableOrCollection: insertMatch[1],
       insertValues,
+      insertColumns: explicitColumns ?? undefined,
+      insertOrderedValues: explicitColumns ? undefined : orderedValues,
       isMongo: false,
     };
   }
@@ -297,13 +311,27 @@ export function buildMutationSql(parsed: ParsedMutation): string {
   }
   switch (parsed.op) {
     case 'INSERT': {
-      const cols = parsed.insertValues ? Object.keys(parsed.insertValues) : [];
-      const vals = parsed.insertValues ? Object.values(parsed.insertValues).map((v) => {
-        if (v === null) return 'NULL';
+      const formatVal = (v: unknown): string => {
+        if (v === null || v === undefined) return 'NULL';
         if (typeof v === 'string') return `'${escapeSqlString(v)}'`;
+        if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
         return String(v);
-      }) : [];
-      return `INSERT INTO ${parsed.tableOrCollection} (${cols.join(', ')}) VALUES (${vals.join(', ')})`;
+      };
+      if (parsed.insertColumns && parsed.insertColumns.length > 0 && parsed.insertValues) {
+        const cols = parsed.insertColumns;
+        const vals = cols.map((c) => formatVal(parsed.insertValues![c]));
+        return `INSERT INTO ${parsed.tableOrCollection} (${cols.join(', ')}) VALUES (${vals.join(', ')})`;
+      }
+      if (parsed.insertOrderedValues && parsed.insertOrderedValues.length > 0) {
+        const vals = parsed.insertOrderedValues.map(formatVal);
+        return `INSERT INTO ${parsed.tableOrCollection} VALUES (${vals.join(', ')})`;
+      }
+      if (parsed.insertValues && Object.keys(parsed.insertValues).length > 0) {
+        const cols = Object.keys(parsed.insertValues);
+        const vals = cols.map((c) => formatVal(parsed.insertValues![c]));
+        return `INSERT INTO ${parsed.tableOrCollection} (${cols.join(', ')}) VALUES (${vals.join(', ')})`;
+      }
+      return '';
     }
     case 'UPDATE': {
       const setParts = parsed.setClause ? Object.entries(parsed.setClause).map(([k, v]) => {

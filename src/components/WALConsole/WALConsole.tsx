@@ -9,12 +9,17 @@ import type { WALFilterState } from './WALFilters';
 export function WALConsole() {
   const { activeEngineId } = useEngine();
   const { walEntries, clearWal } = useTransaction();
-  const [filters, setFilters] = useState<WALFilterState>({ tid: '', opType: 'TODAS' });
+  const [filters, setFilters] = useState<WALFilterState>({ tid: '', opType: 'TODAS', startTime: '', endTime: '' });
+
+  const startMs = filters.startTime ? new Date(filters.startTime).getTime() : null;
+  const endMs = filters.endTime ? new Date(filters.endTime).getTime() : null;
 
   const filteredEntries = walEntries.filter((entry) => {
     if (activeEngineId && entry.engine_id !== activeEngineId) return false;
     if (filters.tid && !entry.tid.toLowerCase().includes(filters.tid.toLowerCase())) return false;
     if (filters.opType !== 'TODAS' && entry.op !== filters.opType) return false;
+    if (startMs !== null && entry.timestamp < startMs) return false;
+    if (endMs !== null && entry.timestamp > endMs) return false;
     return true;
   });
 
