@@ -14,11 +14,12 @@ function getOpColor(op: string): string {
 }
 
 export function TransactionManagerView() {
-  const { selectedTid, activeTransactions, walEntries, dirtyPages, protocol, commit, rollback, setActiveView, setSelectedTid } = useTransaction();
+  const { selectedTid, allTransactions, walEntries, dirtyPages, protocol, commit, rollback, setActiveView, setSelectedTid } = useTransaction();
 
-  const tx = activeTransactions.find((t) => t.tid === selectedTid);
+  const tx = allTransactions.find((t) => t.tid === selectedTid);
   const txWalEntries = walEntries.filter((e) => e.tid === selectedTid);
   const txDirtyPages = dirtyPages.filter(([key]) => key.startsWith(`${selectedTid}:`));
+  const isTxActive = tx?.status === 'ACTIVE';
 
   if (!selectedTid) {
     return (
@@ -61,7 +62,7 @@ export function TransactionManagerView() {
           </div>
           <div className="space-y-1">
             <span className="text-[10px] text-outline font-label-caps uppercase">Status</span>
-            <p className={`font-code-md text-lg ${tx?.status === 'ACTIVE' ? 'text-secondary' : 'text-outline'}`}>{tx?.status ?? 'UNKNOWN'}</p>
+            <p className={`font-code-md text-lg ${tx?.status === 'ACTIVE' ? 'text-secondary' : tx?.status === 'COMMITTED' ? 'text-secondary' : tx?.status === 'ABORTED' ? 'text-error' : 'text-yellow-600'}`}>{tx?.status ?? 'UNKNOWN'}</p>
           </div>
           <div className="space-y-1">
             <span className="text-[10px] text-outline font-label-caps uppercase">Engine</span>
@@ -76,9 +77,9 @@ export function TransactionManagerView() {
         <div className="px-4 pb-4 flex gap-2">
           <button
             onClick={handleCommit}
-            disabled={tx?.status !== 'ACTIVE'}
+            disabled={!isTxActive}
             className={`px-4 py-2 text-[11px] font-bold rounded transition-all ${
-              tx?.status === 'ACTIVE'
+              isTxActive
                 ? 'bg-secondary text-on-secondary hover:opacity-90'
                 : 'bg-surface-container-high text-outline cursor-not-allowed'
             }`}
@@ -87,9 +88,9 @@ export function TransactionManagerView() {
           </button>
           <button
             onClick={handleRollback}
-            disabled={tx?.status !== 'ACTIVE'}
+            disabled={!isTxActive}
             className={`px-4 py-2 text-[11px] font-bold rounded transition-all ${
-              tx?.status === 'ACTIVE'
+              isTxActive
                 ? 'bg-error-container text-error hover:opacity-90'
                 : 'bg-surface-container-high text-outline cursor-not-allowed'
             }`}

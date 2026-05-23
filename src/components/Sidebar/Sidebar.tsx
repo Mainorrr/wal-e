@@ -1,12 +1,31 @@
 import { useEngine } from '../../context/EngineContext';
 import { useTransaction } from '../../context/TransactionContext';
+import type { TxStatus } from '../../context/TransactionContext';
 import { NodeButton } from './NodeButton';
 import { ProtocolSelect } from './ProtocolSelect';
 import { MaterialSymbol } from '../shared/MaterialSymbol';
 
+function getStatusDotColor(status: TxStatus): string {
+  switch (status) {
+    case 'ACTIVE': return 'bg-secondary animate-pulse';
+    case 'COMMITTED': return 'bg-green-500';
+    case 'ABORTED': return 'bg-red-400';
+    case 'PENDIENTE': return 'bg-yellow-500';
+  }
+}
+
+function getStatusTextColor(status: TxStatus): string {
+  switch (status) {
+    case 'ACTIVE': return 'text-primary';
+    case 'COMMITTED': return 'text-secondary';
+    case 'ABORTED': return 'text-error';
+    case 'PENDIENTE': return 'text-yellow-600';
+  }
+}
+
 export function Sidebar() {
   const { engines, activeEngineId } = useEngine();
-  const { protocol, setProtocol, activeTransactions, selectedTid, setSelectedTid, setActiveView } = useTransaction();
+  const { protocol, setProtocol, allTransactions, selectedTid, setSelectedTid, setActiveView } = useTransaction();
 
   const activeEngine = engines.find((e) => e.id === activeEngineId);
 
@@ -59,12 +78,12 @@ export function Sidebar() {
           <ProtocolSelect value={protocol} onChange={setProtocol} />
         </div>
 
-        {activeTransactions.length > 0 && (
+        {allTransactions.length > 0 && (
           <div className="mt-8 px-3">
             <span className="font-label-caps text-label-caps text-outline uppercase block mb-2">
-              Active Transactions
+              Transactions ({allTransactions.length})
             </span>
-            {activeTransactions.map((tx) => (
+            {allTransactions.map((tx) => (
               <div
                 key={tx.tid}
                 onClick={() => handleTxClick(tx.tid)}
@@ -74,8 +93,8 @@ export function Sidebar() {
                     : 'hover:bg-surface-container-high'
                 }`}
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-secondary" />
-                <span className="font-code-md text-primary">{tx.tid}</span>
+                <span className={`w-1.5 h-1.5 rounded-full ${getStatusDotColor(tx.status)}`} />
+                <span className={`font-code-md ${getStatusTextColor(tx.status)}`}>{tx.tid}</span>
                 <span className="text-on-surface-variant text-[10px] ml-auto">
                   {tx.status}
                 </span>

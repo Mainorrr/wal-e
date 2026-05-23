@@ -2,10 +2,18 @@ import { createContext, useContext, useState, useCallback, useEffect, type React
 import type { RecoveryProtocol, MutationData } from '../../electron/types';
 import type { WalEntry } from '../types/window';
 
+export type TxStatus = 'ACTIVE' | 'COMMITTED' | 'ABORTED' | 'PENDIENTE';
+
+export interface DisplayTransaction {
+  tid: string;
+  engineId: string;
+  status: TxStatus;
+}
+
 interface TransactionContextValue {
   currentTid: string;
   protocol: RecoveryProtocol;
-  activeTransactions: Array<{ tid: string; engineId: string; status: string }>;
+  allTransactions: DisplayTransaction[];
   dirtyPages: Array<[string, MutationData]>;
   walEntries: WalEntry[];
   selectedTid: string | null;
@@ -34,6 +42,31 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
   const [walEntries, setWalEntries] = useState<WalEntry[]>([]);
   const [selectedTid, setSelectedTid] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'query' | 'transaction' | 'recovery'>('query');
+  const [allTransactions, setAllTransactions] = useState<DisplayTransaction[]>([]);
+
+  function reconstructTransactions(entries: WalEntry[]): DisplayTransaction[] {
+    const grouped = new Map<string, WalEntry[]>();
+    for (const entry of entries) {
+      const existing = grouped.get(entry.tid) ?? [];
+      existing.push(entry);
+      grouped.set(entry.tid, existing);
+    }
+    const result: DisplayTransaction[] = [];
+    for (const [tid, txEntries] of grouped) {
+      const hasCommit = txEntries.some((e) => e.op === 'COMMIT');
+      const hasAbort = txEntries.some((e) => e.op === 'ABORT');
+      let status: TxStatus;
+      if (hasCommit) status = 'COMMITTED';
+      else if (hasAbort) status = 'ABORTED';
+      else status = 'PENDIENTE';
+      result.push({
+        tid,
+        engineId: txEntries[0]?.engineId ?? 'unknown',
+        status,
+      });
+    }
+    return result;
+  }
 
   const refreshStatus = useCallback(async () => {
     const status = await window.api.getTransactionStatus();
@@ -54,6 +87,18 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
       unsub();
     };
   }, [refreshStatus]);
+
+  useEffect(() => {
+    const reconstructed = reconstructTransactions(walEntries);
+    const merged: DisplayTransaction[] = reconstructed.map((r) => {
+      const active = activeTransactions.find((a) => a.tid === r.tid);
+      if (active) {
+        return { ...r, status: 'ACTIVE' as TxStatus };
+      }
+      return r;
+    });
+    setAllTransactions(merged);
+  }, [walEntries, activeTransactions]);
 
   const begin = useCallback(async (tid: string, engineId: string) => {
     const result = await window.api.beginTransaction(tid, engineId);
@@ -98,6 +143,7 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
   const clearWal = useCallback(async () => {
     await window.api.clearWal();
     setWalEntries([]);
+    setAllTransactions([]);
   }, []);
 
   const loadDemo = useCallback(async () => {
@@ -111,7 +157,7 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
     <TransactionContext.Provider value={{
       currentTid,
       protocol,
-      activeTransactions,
+      allTransactions,
       dirtyPages,
       walEntries,
       selectedTid,
