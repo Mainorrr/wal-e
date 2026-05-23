@@ -1,0 +1,131 @@
+import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import type { RecoveryProtocol, MutationData } from '../../electron/types';
+import type { WalEntry } from '../types/window';
+
+interface TransactionContextValue {
+  currentTid: string;
+  protocol: RecoveryProtocol;
+  activeTransactions: Array<{ tid: string; engineId: string; status: string }>;
+  dirtyPages: Array<[string, MutationData]>;
+  walEntries: WalEntry[];
+  setTid: (tid: string) => void;
+  begin: (tid: string, engineId: string) => Promise<{ success: boolean; error?: string }>;
+  execute: (tid: string, mutationData: MutationData) => Promise<{ success: boolean; error?: string }>;
+  commit: (tid: string) => Promise<{ success: boolean; error?: string }>;
+  rollback: (tid: string) => Promise<{ success: boolean; error?: string }>;
+  setProtocol: (p: RecoveryProtocol) => Promise<void>;
+  triggerCrash: () => Promise<void>;
+  triggerRecovery: () => Promise<{ beforeState: unknown; afterState: unknown } | null>;
+  clearWal: () => Promise<void>;
+  loadDemo: () => Promise<void>;
+}
+
+const TransactionContext = createContext<TransactionContextValue | null>(null);
+
+export function TransactionProvider({ children }: { children: ReactNode }) {
+  const [currentTid, setCurrentTid] = useState('');
+  const [protocol, setProtocolState] = useState<RecoveryProtocol>('No-Undo/Redo');
+  const [activeTransactions, setActiveTransactions] = useState<Array<{ tid: string; engineId: string; status: string }>>([]);
+  const [dirtyPages, setDirtyPages] = useState<Array<[string, MutationData]>>([]);
+  const [walEntries, setWalEntries] = useState<WalEntry[]>([]);
+
+  const refreshStatus = useCallback(async () => {
+    const status = await window.api.getTransactionStatus();
+    setProtocolState(status.protocol);
+    setActiveTransactions(status.activeTransactions);
+    setDirtyPages(status.dirtyPages as Array<[string, MutationData]>);
+  }, []);
+
+  useEffect(() => {
+    const unsub = window.api.onWalEntry((entry: WalEntry) => {
+      setWalEntries((prev) => [...prev, entry]);
+    });
+    window.api.getWalLogs().then((entries) => {
+      setWalEntries(entries as WalEntry[]);
+    });
+    refreshStatus();
+    return () => {
+      unsub();
+    };
+  }, [refreshStatus]);
+
+  const begin = useCallback(async (tid: string, engineId: string) => {
+    const result = await window.api.beginTransaction(tid, engineId);
+    await refreshStatus();
+    return result;
+  }, [refreshStatus]);
+
+  const execute = useCallback(async (tid: string, mutationData: MutationData) => {
+    const result = await window.api.executeTx(tid, mutationData);
+    await refreshStatus();
+    return result;
+  }, [refreshStatus]);
+
+  const commit = useCallback(async (tid: string) => {
+    const result = await window.api.commitTransaction(tid);
+    await refreshStatus();
+    return result;
+  }, [refreshStatus]);
+
+  const rollback = useCallback(async (tid: string) => {
+    const result = await window.api.rollbackTransaction(tid);
+    await refreshStatus();
+    return result;
+  }, [refreshStatus]);
+
+  const setProtocol = useCallback(async (p: RecoveryProtocol) => {
+    await window.api.setProtocol(p);
+    setProtocolState(p);
+  }, []);
+
+  const triggerCrash = useCallback(async () => {
+    await window.api.triggerCrash();
+    await refreshStatus();
+  }, [refreshStatus]);
+
+  const triggerRecovery = useCallback(async () => {
+    const result = await window.api.triggerRecovery();
+    await refreshStatus();
+    return result;
+  }, [refreshStatus]);
+
+  const clearWal = useCallback(async () => {
+    await window.api.clearWal();
+    setWalEntries([]);
+  }, []);
+
+  const loadDemo = useCallback(async () => {
+    await window.api.loadDemo();
+    await refreshStatus();
+    const entries = await window.api.getWalLogs();
+    setWalEntries(entries as WalEntry[]);
+  }, [refreshStatus]);
+
+  return (
+    <TransactionContext.Provider value={{
+      currentTid,
+      protocol,
+      activeTransactions,
+      dirtyPages,
+      walEntries,
+      setTid: setCurrentTid,
+      begin,
+      execute,
+      commit,
+      rollback,
+      setProtocol,
+      triggerCrash,
+      triggerRecovery,
+      clearWal,
+      loadDemo,
+    }}>
+      {children}
+    </TransactionContext.Provider>
+  );
+}
+
+export function useTransaction() {
+  const ctx = useContext(TransactionContext);
+  if (!ctx) throw new Error('useTransaction must be used within TransactionProvider');
+  return ctx;
+}
