@@ -71,7 +71,7 @@ export function Sidebar() {
           label="MongoDB Nodes"
           icon="storage"
           type="nosql"
-          config={{ uri: 'mongodb://localhost:27017', database: 'wal_e_demo' }}
+          config={{ uri: 'mongodb://mongo:mongo@localhost:27017', database: 'wal_e' }}
           isActive={activeEngine?.id === 'mongodb-nodo-01'}
         />
 

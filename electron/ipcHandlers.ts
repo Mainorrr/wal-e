@@ -15,6 +15,10 @@ export function initServices(): void {
   walManager = new WalManager();
   transactionManager = new TransactionManager(walManager, connectionManager);
 
+  transactionManager.reconstructFromWal();
+  const lastProtocol = transactionManager.getProtocolFromWal();
+  if (lastProtocol) transactionManager.setProtocol(lastProtocol);
+
   walManager.onEntry((entry: LogEntry) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('wal:entry', entry);
@@ -71,7 +75,7 @@ export function setupIPCHandlers(): void {
   ipcMain.handle('tx:commit', async (_event, args: { tid: string }) => {
     const { tid } = args;
     try {
-      transactionManager.commitTransaction(tid);
+      await transactionManager.commitTransaction(tid);
       return { success: true, tid };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
@@ -104,6 +108,11 @@ export function setupIPCHandlers(): void {
     };
   });
 
+  ipcMain.handle('tx:reconstruct', async () => {
+    transactionManager.reconstructFromWal();
+    return { success: true, activeTransactions: transactionManager.getActiveTransactions() };
+  });
+
   ipcMain.handle('wal:get-logs', async (_event, filters: { tid?: string; startTime?: number; endTime?: number }) => {
     return walManager.getEntries(filters ?? {});
   });
@@ -121,6 +130,7 @@ export function setupIPCHandlers(): void {
     }
 
     console.log(`Received query execution request for engine ${engineId}: ${query} (tid: ${tid})`);
+    console.log(isMutationQuery(query) ? 'Identified as mutation query' : 'Identified as non-mutation query');
     if (isMutationQuery(query) && tid) {
       try {
         const mutationData = await transactionManager.executeMutationFromQuery(tid, engineId, query);
