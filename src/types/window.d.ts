@@ -8,6 +8,7 @@ export interface WalEntry {
   after_image: Record<string, unknown> | null;
   timestamp: number;
   engine_id: string;
+  protocol?: string;
 }
 
 export interface IElectronAPI {

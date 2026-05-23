@@ -1,14 +1,22 @@
 import { useTransaction } from '../../context/TransactionContext';
 import { useEngine } from '../../context/EngineContext';
+import { useRef } from 'react';
 import { MaterialSymbol } from '../shared/MaterialSymbol';
 
 export function ActionButtons() {
-  const { currentTid, begin, commit, rollback, triggerCrash, triggerRecovery, loadDemo } = useTransaction();
+  const { currentTid, setTid, begin, commit, rollback, triggerCrash, triggerRecovery, loadDemo } = useTransaction();
   const { activeEngineId } = useEngine();
+  const tidCounter = useRef(0);
 
   const handleBegin = async () => {
-    if (!currentTid || !activeEngineId) return;
-    await begin(currentTid, activeEngineId);
+    if (!activeEngineId) return;
+    let tid = currentTid;
+    if (!tid) {
+      tidCounter.current += 1;
+      tid = `TXN-${String(tidCounter.current).padStart(4, '0')}`;
+      setTid(tid);
+    }
+    await begin(tid, activeEngineId);
   };
 
   const handleCommit = async () => {

@@ -37,6 +37,7 @@ export class TransactionManager {
       engine_id: engineId,
       before_image: null,
       after_image: null,
+      protocol: this.currentProtocol,
     });
     this.activeTransactions.set(tid, {
       tid,

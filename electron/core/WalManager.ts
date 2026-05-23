@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { app } from 'electron';
 import type { DataSnapshot } from '../types';
 
 export interface LogEntry {
@@ -11,6 +10,7 @@ export interface LogEntry {
   after_image: DataSnapshot;
   timestamp: number;
   engine_id: string;
+  protocol?: string;
 }
 
 export type LogEntryInput = Omit<LogEntry, 'timestamp'>;
@@ -21,7 +21,7 @@ export class WalManager {
   private subscribers: Set<EntryCallback> = new Set();
 
   constructor(logPath?: string) {
-    this.logPath = logPath ?? path.join(app.getPath('userData'), 'bitacora.log');
+    this.logPath = logPath ?? path.join(process.cwd(), 'bitacora.log');
   }
 
   public onEntry(callback: EntryCallback): () => void {

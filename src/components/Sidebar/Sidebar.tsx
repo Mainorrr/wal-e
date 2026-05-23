@@ -6,7 +6,7 @@ import { MaterialSymbol } from '../shared/MaterialSymbol';
 
 export function Sidebar() {
   const { engines, activeEngineId } = useEngine();
-  const { protocol, setProtocol } = useTransaction();
+  const { protocol, setProtocol, activeTransactions } = useTransaction();
 
   const activeEngine = engines.find((e) => e.id === activeEngineId);
 
@@ -48,6 +48,23 @@ export function Sidebar() {
         <div className="mt-8 px-3">
           <ProtocolSelect value={protocol} onChange={setProtocol} />
         </div>
+
+        {activeTransactions.length > 0 && (
+          <div className="mt-8 px-3">
+            <span className="font-label-caps text-label-caps text-outline uppercase block mb-2">
+              Active Transactions
+            </span>
+            {activeTransactions.map((tx) => (
+              <div key={tx.tid} className="flex items-center gap-2 px-3 py-1.5 rounded text-code-sm">
+                <span className="w-1.5 h-1.5 rounded-full bg-secondary" />
+                <span className="font-code-md text-primary">{tx.tid}</span>
+                <span className="text-on-surface-variant text-[10px] ml-auto">
+                  {tx.status}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </nav>
 
       <div className="p-4 border-t border-outline-variant space-y-1">
