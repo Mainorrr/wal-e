@@ -2,9 +2,10 @@ import { useEngine } from '../../context/EngineContext';
 
 interface ResultsTableProps {
   isMongo: boolean;
+  queryResult?: { data: unknown; isMutation: boolean } | null;
 }
 
-export function ResultsTable({ isMongo }: ResultsTableProps) {
+export function ResultsTable({ isMongo, queryResult }: ResultsTableProps) {
   const { activeEngineId } = useEngine();
 
   if (!activeEngineId) {
@@ -17,18 +18,41 @@ export function ResultsTable({ isMongo }: ResultsTableProps) {
     );
   }
 
+  if (queryResult?.isMutation) {
+    return (
+      <div className="h-1/3 border-t border-outline-variant bg-surface overflow-auto flex items-center justify-center">
+        <div className="text-center">
+          <span className="material-symbols-outlined text-secondary text-4xl mb-2">check_circle</span>
+          <p className="text-secondary font-code-md text-code-sm">Mutation applied</p>
+          <p className="text-on-surface-variant text-[10px] mt-1">Check WAL log for details</p>
+        </div>
+      </div>
+    );
+  }
+
+  const rows = queryResult?.data as Record<string, unknown>[] | undefined;
+
   if (isMongo) {
     return (
       <div className="h-1/3 border-t border-outline-variant bg-surface overflow-auto p-4">
         <pre className="text-secondary-fixed-dim font-code-sm text-code-sm">
-
+          {rows ? JSON.stringify(rows, null, 2) : 'No data'}
         </pre>
       </div>
     );
   }
 
-  const columns: string[] = [];
-  const rows: Record<string, unknown>[] = [];
+  if (!rows || rows.length === 0) {
+    return (
+      <div className="h-1/3 border-t border-outline-variant bg-surface overflow-auto flex items-center justify-center">
+        <p className="text-on-surface-variant text-code-sm font-code-md italic">
+          No results. Run a SELECT query.
+        </p>
+      </div>
+    );
+  }
+
+  const columns = Object.keys(rows[0]);
 
   return (
     <div className="h-1/3 border-t border-outline-variant bg-surface overflow-auto">

@@ -8,6 +8,7 @@ export interface WalEntry {
   after_image: Record<string, unknown> | null;
   timestamp: number;
   engine_id: string;
+  protocol?: string;
 }
 
 export interface IElectronAPI {
@@ -30,6 +31,12 @@ export interface IElectronAPI {
   triggerRecovery(): Promise<{ beforeState: unknown; afterState: unknown }>;
   onWalEntry(callback: (entry: WalEntry) => void): () => void;
   loadDemo(): Promise<{ success: boolean }>;
+  executeQuery(engineId: string, query: string, tid?: string): Promise<{
+    success: boolean;
+    data?: unknown;
+    error?: string;
+    isMutation?: boolean;
+  }>;
 }
 
 declare global {

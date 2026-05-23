@@ -3,13 +3,16 @@ import { Terminal } from 'lucide-react';
 import { WALFilters } from './WALFilters';
 import { WALLogViewer } from './WALLogViewer';
 import { useTransaction } from '../../context/TransactionContext';
+import { useEngine } from '../../context/EngineContext';
 import type { WALFilterState } from './WALFilters';
 
 export function WALConsole() {
+  const { activeEngineId } = useEngine();
   const { walEntries, clearWal } = useTransaction();
   const [filters, setFilters] = useState<WALFilterState>({ tid: '', opType: 'TODAS' });
 
   const filteredEntries = walEntries.filter((entry) => {
+    if (activeEngineId && entry.engine_id !== activeEngineId) return false;
     if (filters.tid && !entry.tid.toLowerCase().includes(filters.tid.toLowerCase())) return false;
     if (filters.opType !== 'TODAS' && entry.op !== filters.opType) return false;
     return true;

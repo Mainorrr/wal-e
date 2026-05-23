@@ -1,24 +1,29 @@
 import { useTransaction } from '../../context/TransactionContext';
-import { useEngine } from '../../context/EngineContext';
+import { useState } from 'react';
 import { MaterialSymbol } from '../shared/MaterialSymbol';
+import { CreateTransactionModal } from './CreateTransactionModal';
 
 export function ActionButtons() {
-  const { currentTid, begin, commit, rollback, triggerCrash, triggerRecovery, loadDemo } = useTransaction();
-  const { activeEngineId } = useEngine();
+  const { selectedTid, setSelectedTid, commit, rollback, triggerCrash, triggerRecovery, loadDemo, allTransactions } = useTransaction();
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
-  const handleBegin = async () => {
-    if (!currentTid || !activeEngineId) return;
-    await begin(currentTid, activeEngineId);
+  const selectedTx = allTransactions.find((t) => t.tid === selectedTid);
+  const isSelectedTxActive = selectedTx?.status === 'ACTIVE';
+
+  const handleBegin = () => {
+    setShowCreateModal(true);
   };
 
   const handleCommit = async () => {
-    if (!currentTid) return;
-    await commit(currentTid);
+    if (!selectedTid || !isSelectedTxActive) return;
+    await commit(selectedTid);
+    setSelectedTid(null);
   };
 
   const handleRollback = async () => {
-    if (!currentTid) return;
-    await rollback(currentTid);
+    if (!selectedTid || !isSelectedTxActive) return;
+    await rollback(selectedTid);
+    setSelectedTid(null);
   };
 
   const handleCrash = async () => {
@@ -44,13 +49,15 @@ export function ActionButtons() {
         </button>
         <button
           onClick={handleCommit}
-          className="px-4 py-1.5 text-[11px] font-bold text-secondary hover:bg-secondary-container/20 transition-all rounded-sm"
+          disabled={!selectedTid || !isSelectedTxActive}
+          className={`px-4 py-1.5 text-[11px] font-bold rounded transition-all ${isSelectedTxActive && selectedTid ? 'text-secondary hover:bg-secondary-container/20' : 'text-outline opacity-40 cursor-not-allowed'}`}
         >
           COMMIT
         </button>
         <button
           onClick={handleRollback}
-          className="px-4 py-1.5 text-[11px] font-bold text-on-surface-variant hover:bg-outline-variant transition-all rounded-sm"
+          disabled={!selectedTid || !isSelectedTxActive}
+          className={`px-4 py-1.5 text-[11px] font-bold rounded transition-all ${isSelectedTxActive && selectedTid ? 'text-on-surface-variant hover:bg-outline-variant' : 'text-outline opacity-40 cursor-not-allowed'}`}
         >
           ROLLBACK
         </button>
@@ -79,6 +86,10 @@ export function ActionButtons() {
       >
         LOAD DEMO
       </button>
+
+      {showCreateModal && (
+        <CreateTransactionModal onClose={() => setShowCreateModal(false)} />
+      )}
     </div>
   );
 }
