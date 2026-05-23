@@ -2,6 +2,7 @@ import { ipcMain, BrowserWindow } from 'electron';
 import { ConnectionManager } from './engines/ConnectionManager';
 import { WalManager, LogEntry } from './core/WalManager';
 import { TransactionManager } from './core/TransactionManager';
+import { isMutationQuery } from './core/QueryParser';
 import type { EngineConfig, EngineType, RecoveryProtocol, MutationData } from './types';
 
 let connectionManager: ConnectionManager;
@@ -58,6 +59,7 @@ export function setupIPCHandlers(): void {
   ipcMain.handle('tx:execute', async (_event, args: { tid: string; mutationData: MutationData }) => {
     const { tid, mutationData } = args;
     try {
+      console.log(`Executing mutation in transaction ${tid}: ${JSON.stringify(mutationData)}`);
       transactionManager.executeMutationSimulated(tid, mutationData);
       return { success: true };
     } catch (error: unknown) {
@@ -109,6 +111,26 @@ export function setupIPCHandlers(): void {
   ipcMain.handle('wal:clear', async () => {
     walManager.clearLog();
     return { success: true };
+  });
+
+  ipcMain.handle('query:execute', async (_event, args: { engineId: string; query: string; tid?: string }) => {
+    const { engineId, query, tid } = args;
+    const engine = connectionManager.getEngine(engineId);
+    if (!engine) {
+      return { success: false, error: `Engine ${engineId} not connected` };
+    }
+
+    console.log(`Received query execution request for engine ${engineId}: ${query} (tid: ${tid})`);
+    if (isMutationQuery(query) && tid) {
+      try {
+        const mutationData = await transactionManager.executeMutationFromQuery(tid, engineId, query);
+        return { success: true, data: mutationData, isMutation: true };
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: message };
+      }
+    }
+    return engine.executeQuery(query);
   });
 
   ipcMain.handle('system:crash', async () => {

@@ -51,4 +51,7 @@ contextBridge.exposeInMainWorld('api', {
 
   loadDemo: () =>
     ipcRenderer.invoke('demo:seed'),
+
+  executeQuery: (engineId: string, query: string, tid?: string) =>
+    ipcRenderer.invoke('query:execute', { engineId, query, tid }),
 })
