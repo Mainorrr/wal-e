@@ -250,6 +250,33 @@ export class TransactionManager {
     return new Map(this.dirtyPagesBuffer);
   }
 
+  public reconstructFromWal(): void {
+    const entries = this.wal.getEntries({});
+    const grouped = new Map<string, LogEntry[]>();
+    for (const entry of entries) {
+      const existing = grouped.get(entry.tid) ?? [];
+      existing.push(entry);
+      grouped.set(entry.tid, existing);
+    }
+    this.activeTransactions.clear();
+    for (const [tid, txEntries] of grouped) {
+      const hasCommit = txEntries.some((e) => e.op === 'COMMIT');
+      const hasAbort = txEntries.some((e) => e.op === 'ABORT');
+      const status: 'ACTIVE' | 'COMMITTED' | 'ABORTED' =
+        hasCommit ? 'COMMITTED' : hasAbort ? 'ABORTED' : 'ACTIVE';
+      const engineId = txEntries[0]?.engine_id ?? 'unknown';
+      this.activeTransactions.set(tid, { tid, engineId, status });
+    }
+  }
+
+  public getProtocolFromWal(): RecoveryProtocol | null {
+    const entries = this.wal.getEntries({});
+    const beginEntries = entries.filter((e) => e.op === 'BEGIN');
+    if (beginEntries.length === 0) return null;
+    const mostRecent = beginEntries.sort((a, b) => b.timestamp - a.timestamp)[0];
+    return (mostRecent.protocol as RecoveryProtocol) ?? null;
+  }
+
   private async flushToDisk(tid: string, mutationData: MutationData, parsed?: ReturnType<typeof parseMutationQuery>): Promise<void> {
     const txState = this.activeTransactions.get(tid);
     if (!txState) return;
