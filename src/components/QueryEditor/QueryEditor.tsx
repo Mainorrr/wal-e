@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CodeDisplay } from './CodeDisplay';
 import { ResultsTable } from './ResultsTable';
 import { useEngine } from '../../context/EngineContext';
@@ -97,6 +97,53 @@ export function QueryEditor() {
     );
   }
 
+  return <QueryEditorBody isMongo={isMongo} queryResult={queryResult} setQueryResult={setQueryResult} />;
+}
+
+interface QueryEditorBodyProps {
+  isMongo: boolean;
+  queryResult: { data: unknown; isMutation: boolean } | null;
+  setQueryResult: (r: { data: unknown; isMutation: boolean } | null) => void;
+}
+
+function QueryEditorBody({ isMongo, queryResult, setQueryResult }: QueryEditorBodyProps) {
+  const { activeEngineId } = useEngine();
+  const { executeQuery, allTransactions, selectedTid, pendingQuery, setPendingQuery } = useTransaction();
+  const [query, setQuery] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (pendingQuery !== null) {
+      setQuery(pendingQuery);
+      setPendingQuery(null);
+    }
+  }, [pendingQuery, setPendingQuery]);
+
+  const selectedTxBody = allTransactions.find((t) => t.tid === selectedTid);
+  const isTxActiveBody = selectedTxBody?.status === 'ACTIVE';
+  const canRun = !!activeEngineId && !!selectedTid && isTxActiveBody;
+
+  const handleRun = async () => {
+    if (!canRun || !query.trim()) return;
+    setError(null);
+    try {
+      const result = await executeQuery(activeEngineId!, query, selectedTid!);
+      if (!result.success) {
+        setError(result.error || 'Query failed');
+      } else {
+        setQueryResult({ data: result.data, isMutation: result.isMutation || false });
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const placeholder = canRun
+    ? (isMongo
+        ? "db.estudiantes.insertOne({ carne: 'B999', nombre: 'New', nota: 80 })"
+        : "Write your query here... (e.g. UPDATE estudiantes SET nota = 90 WHERE carne = 'B12345')")
+    : "Select a transaction to enable query editing...";
+
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-surface-container-low border border-outline-variant rounded-lg overflow-hidden">
       <div className="flex items-center justify-between px-4 py-2 bg-surface-container border-b border-outline-variant">
@@ -109,8 +156,28 @@ export function QueryEditor() {
             <span className="text-[10px] text-secondary font-bold tracking-tighter uppercase">Connected</span>
           </div>
         </div>
+        <div className="flex items-center gap-2">
+          {error && <span className="text-error text-[10px] mr-1">{error}</span>}
+          {!canRun && (
+            <span className="text-[10px] text-yellow-600 mr-1">Select an active transaction</span>
+          )}
+          <button
+            onClick={handleRun}
+            disabled={!canRun || !query.trim()}
+            className={`flex items-center gap-1 px-3 py-1 text-[11px] font-bold rounded transition-opacity ${canRun && query.trim() ? 'bg-primary-container text-on-primary-container hover:opacity-90' : 'bg-surface-container text-outline opacity-50 cursor-not-allowed'}`}
+            title="Execute query"
+          >
+            <MaterialSymbol icon="play_arrow" size={16} />
+            Run
+          </button>
+        </div>
       </div>
-      <CodeDisplay onResult={(data, isMutation) => setQueryResult({ data, isMutation })} />
+      <CodeDisplay
+        value={query}
+        onChange={setQuery}
+        disabled={!canRun}
+        placeholder={placeholder}
+      />
       <ResultsTable isMongo={isMongo} queryResult={queryResult} />
     </div>
   );

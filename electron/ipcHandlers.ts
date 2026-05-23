@@ -86,7 +86,7 @@ export function setupIPCHandlers(): void {
   ipcMain.handle('tx:rollback', async (_event, args: { tid: string }) => {
     const { tid } = args;
     try {
-      transactionManager.rollbackTransaction(tid);
+      await transactionManager.rollbackTransaction(tid);
       return { success: true, tid };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
@@ -144,12 +144,12 @@ export function setupIPCHandlers(): void {
   });
 
   ipcMain.handle('system:crash', async () => {
-    transactionManager.injectControlledCrash();
-    return { success: true };
+    const result = transactionManager.injectControlledCrash();
+    return { success: true, ...result };
   });
 
   ipcMain.handle('system:recover', async () => {
-    const result = transactionManager.runRecoveryProcedure();
+    const result = await transactionManager.runRecoveryProcedure();
     return result;
   });
 
@@ -158,7 +158,7 @@ export function setupIPCHandlers(): void {
     await connectionManager.connect(engineId, 'relational', {
       host: 'localhost',
       port: 5432,
-      database: 'wal_e_demo',
+      database: 'wal_e',
       user: 'postgres',
       password: 'postgres',
     });

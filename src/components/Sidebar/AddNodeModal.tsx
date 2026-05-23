@@ -21,7 +21,7 @@ export function AddNodeModal({ onClose }: AddNodeModalProps) {
   const [password, setPassword] = useState('postgres');
 
   // MongoDB Config State
-  const [uri, setUri] = useState('mongodb://localhost:27017');
+  const [uri, setUri] = useState('mongodb://mongo:mongo@localhost:27017');
   const [mongoDatabase, setMongoDatabase] = useState('wal_e');
 
   const handleSubmit = async (e: React.FormEvent) => {

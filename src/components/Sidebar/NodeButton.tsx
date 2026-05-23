@@ -36,15 +36,21 @@ export function NodeButton({ id, label, icon, type, config, isActive, isCustom }
   };
 
   const activeClasses = isActive
-    ? 'text-primary border-l-2 border-primary bg-primary-container/10'
+    ? 'text-primary bg-primary-container/10'
     : 'text-on-surface-variant hover:bg-surface-container-high';
 
   return (
     <div className="relative group w-full">
       <button
         onClick={handleClick}
-        className={`w-full flex items-center justify-between px-3 py-2 rounded transition-colors duration-200 ${activeClasses}`}
+        className={`relative w-full flex items-center justify-between px-3 py-2 rounded transition-colors duration-200 outline-none focus:outline-none focus-visible:ring-1 focus-visible:ring-primary ${activeClasses}`}
       >
+        {isActive && (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute left-0 top-1.5 bottom-1.5 w-[2px] bg-primary rounded-r-sm"
+          />
+        )}
         <div className="flex items-center gap-3">
           <MaterialSymbol icon={icon} size={20} />
           <span className="font-body-md text-body-md text-left truncate max-w-[140px]">{label}</span>

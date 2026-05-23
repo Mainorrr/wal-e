@@ -3,6 +3,8 @@ import { Search, ChevronDown } from 'lucide-react';
 export interface WALFilterState {
   tid: string;
   opType: string;
+  startTime: string;
+  endTime: string;
 }
 
 interface WALFiltersProps {
@@ -12,7 +14,7 @@ interface WALFiltersProps {
 
 export function WALFilters({ filters, onFilterChange }: WALFiltersProps) {
   return (
-    <div className="flex gap-3 items-center">
+    <div className="flex gap-3 items-center flex-wrap">
       <div className="flex items-center gap-2">
         <span className="text-[10px] text-outline font-bold">TID</span>
         <div className="relative">
@@ -45,6 +47,33 @@ export function WALFilters({ filters, onFilterChange }: WALFiltersProps) {
           <ChevronDown className="w-3 h-3 text-outline absolute right-1.5 top-1.5 pointer-events-none" />
         </div>
       </div>
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] text-outline font-bold">FROM</span>
+        <input
+          type="datetime-local"
+          value={filters.startTime}
+          onChange={(e) => onFilterChange({ ...filters, startTime: e.target.value })}
+          className="bg-black border border-outline-variant text-[11px] font-code-md text-on-surface px-2 py-0.5 focus:border-primary focus:ring-0 rounded-sm outline-none"
+        />
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] text-outline font-bold">TO</span>
+        <input
+          type="datetime-local"
+          value={filters.endTime}
+          onChange={(e) => onFilterChange({ ...filters, endTime: e.target.value })}
+          className="bg-black border border-outline-variant text-[11px] font-code-md text-on-surface px-2 py-0.5 focus:border-primary focus:ring-0 rounded-sm outline-none"
+        />
+      </div>
+      {(filters.startTime || filters.endTime || filters.tid || filters.opType !== 'TODAS') && (
+        <button
+          onClick={() => onFilterChange({ tid: '', opType: 'TODAS', startTime: '', endTime: '' })}
+          className="text-[10px] text-outline hover:text-primary transition-colors px-2"
+          title="Reset filters"
+        >
+          Reset
+        </button>
+      )}
     </div>
   );
 }

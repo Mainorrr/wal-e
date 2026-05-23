@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useTransaction, type DisplayTransaction } from '../../context/TransactionContext';
 import { useEngine } from '../../context/EngineContext';
 import { MaterialSymbol } from '../shared/MaterialSymbol';
@@ -96,8 +97,8 @@ export function CreateTransactionModal({ onClose }: CreateTransactionModalProps)
 
   const connectedEngines = engines;
 
-  return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in">
+  return createPortal((
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center animate-fade-in">
       <div 
         className="bg-surface-container border border-outline-variant p-6 rounded-xl w-[400px] shadow-2xl flex flex-col"
         onClick={(e) => e.stopPropagation()}
@@ -211,5 +212,5 @@ export function CreateTransactionModal({ onClose }: CreateTransactionModalProps)
         </form>
       </div>
     </div>
-  );
+  ), document.body);
 }
