@@ -21,6 +21,7 @@ export class ConnectionManager {
       return false;
     }
 
+
     this.engines.set(engineId, engine);
     this.connections.set(engineId, {
       id: engineId,
@@ -28,6 +29,7 @@ export class ConnectionManager {
       status: 'active' as EngineStatus,
       config,
     });
+    
 
     return true;
   }

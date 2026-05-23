@@ -1,24 +1,33 @@
 import { useTransaction } from '../../context/TransactionContext';
 import { useEngine } from '../../context/EngineContext';
+import { useRef } from 'react';
 import { MaterialSymbol } from '../shared/MaterialSymbol';
 
 export function ActionButtons() {
-  const { currentTid, begin, commit, rollback, triggerCrash, triggerRecovery, loadDemo } = useTransaction();
+  const { currentTid, setTid, begin, commit, rollback, triggerCrash, triggerRecovery, loadDemo, allTransactions } = useTransaction();
   const { activeEngineId } = useEngine();
+  const tidCounter = useRef(0);
+  const selectedTx = allTransactions.find((t) => t.tid === currentTid);
+  const isSelectedTxActive = selectedTx?.status === 'ACTIVE';
 
   const handleBegin = async () => {
-    if (!currentTid || !activeEngineId) return;
-    await begin(currentTid, activeEngineId);
+    if (!activeEngineId) return;
+    tidCounter.current += 1;
+    const tid = `TXN-${String(tidCounter.current).padStart(4, '0')}`;
+    setTid(tid);
+    await begin(tid, activeEngineId);
   };
 
   const handleCommit = async () => {
-    if (!currentTid) return;
+    if (!currentTid || !isSelectedTxActive) return;
     await commit(currentTid);
+    setTid('');
   };
 
   const handleRollback = async () => {
-    if (!currentTid) return;
+    if (!currentTid || !isSelectedTxActive) return;
     await rollback(currentTid);
+    setTid('');
   };
 
   const handleCrash = async () => {
@@ -44,13 +53,15 @@ export function ActionButtons() {
         </button>
         <button
           onClick={handleCommit}
-          className="px-4 py-1.5 text-[11px] font-bold text-secondary hover:bg-secondary-container/20 transition-all rounded-sm"
+          disabled={!currentTid || !isSelectedTxActive}
+          className={`px-4 py-1.5 text-[11px] font-bold rounded transition-all ${isSelectedTxActive && currentTid ? 'text-secondary hover:bg-secondary-container/20' : 'text-outline opacity-40 cursor-not-allowed'}`}
         >
           COMMIT
         </button>
         <button
           onClick={handleRollback}
-          className="px-4 py-1.5 text-[11px] font-bold text-on-surface-variant hover:bg-outline-variant transition-all rounded-sm"
+          disabled={!currentTid || !isSelectedTxActive}
+          className={`px-4 py-1.5 text-[11px] font-bold rounded transition-all ${isSelectedTxActive && currentTid ? 'text-on-surface-variant hover:bg-outline-variant' : 'text-outline opacity-40 cursor-not-allowed'}`}
         >
           ROLLBACK
         </button>
