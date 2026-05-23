@@ -99,7 +99,7 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
     const merged: DisplayTransaction[] = reconstructed.map((r) => {
       const active = activeTransactions.find((a) => a.tid === r.tid);
       if (active) {
-        return { ...r, status: 'ACTIVE' as TxStatus };
+        return { ...r, status: active.status as TxStatus };
       }
       return r;
     });
