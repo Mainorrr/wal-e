@@ -32,7 +32,7 @@ export function Sidebar() {
           label="PostgreSQL Nodes"
           icon="database"
           type="relational"
-          config={{ host: 'localhost', port: 5432, database: 'wal_e_demo', user: 'demo', password: 'demo' }}
+          config={{ host: 'localhost', port: 5432, database: 'wal_e', user: 'postgres', password: 'postgres' }}
           isActive={activeEngine?.id === 'postgresql-nodo-01'}
         />
 

@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: wal-e-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: wal_e
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  mongodb:
+    image: mongo:8
+    container_name: wal-e-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: mongo
+      MONGO_INITDB_ROOT_PASSWORD: mongo
+      MONGO_INITDB_DATABASE: wal_e
+    volumes:
+      - mongodb_data:/data/db
+
+volumes:
+  postgres_data:
+  mongodb_data:

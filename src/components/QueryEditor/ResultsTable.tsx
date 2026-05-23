@@ -21,29 +21,14 @@ export function ResultsTable({ isMongo }: ResultsTableProps) {
     return (
       <div className="h-1/3 border-t border-outline-variant bg-surface overflow-auto p-4">
         <pre className="text-secondary-fixed-dim font-code-sm text-code-sm">
-{`[
-  {
-    "_id": "65609e25470d9e",
-    "nombre": "Estudiante A",
-    "metadata": { "last_login": "2023-11-24T14:32:00Z", "score": 95 }
-  },
-  {
-    "_id": "65609e25470d9f",
-    "nombre": "Estudiante B",
-    "metadata": { "last_login": "2023-11-24T14:30:15Z", "score": 88 }
-  }
-]`}
+
         </pre>
       </div>
     );
   }
 
-  const columns = ['ID', 'Name', 'Note', 'Timestamp'];
-  const rows = [
-    { ID: '001-ALPHA', Name: 'Primary-Node-Main', Note: 'Auto-recovery sequence initiated.', Timestamp: '2024-11-24 14:02:11' },
-    { ID: '004-DELTA', Name: 'Secondary-Node-Edge', Note: 'LSM tree compaction in progress.', Timestamp: '2024-11-24 14:01:55' },
-    { ID: '009-OMEGA', Name: 'Back-Worker-09', Note: 'Checkpoint sync complete (LSN 0/1A22B).', Timestamp: '2024-11-24 14:00:22' },
-  ];
+  const columns: string[] = [];
+  const rows: Record<string, unknown>[] = [];
 
   return (
     <div className="h-1/3 border-t border-outline-variant bg-surface overflow-auto">
@@ -62,7 +47,7 @@ export function ResultsTable({ isMongo }: ResultsTableProps) {
             <tr key={i} className="hover:bg-surface-container-highest transition-colors">
               {columns.map((col, j) => (
                 <td key={j} className={`px-4 py-2 border-r border-outline-variant last:border-r-0 ${j === 0 ? 'text-primary' : j === 2 ? 'text-on-surface-variant' : 'text-outline'}`}>
-                  {row[col as keyof typeof row]}
+                  {String(row[col])}
                 </td>
               ))}
             </tr>

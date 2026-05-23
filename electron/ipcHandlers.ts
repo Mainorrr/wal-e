@@ -127,8 +127,8 @@ export function setupIPCHandlers(): void {
       host: 'localhost',
       port: 5432,
       database: 'wal_e_demo',
-      user: 'demo',
-      password: 'demo',
+      user: 'postgres',
+      password: 'postgres',
     });
 
     transactionManager.setProtocol('Undo/Redo');

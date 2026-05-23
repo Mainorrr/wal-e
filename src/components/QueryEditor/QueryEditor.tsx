@@ -20,7 +20,7 @@ export function QueryEditor() {
           </div>
         </div>
       </div>
-      <CodeDisplay isMongo={isMongo} />
+      <CodeDisplay />
       <ResultsTable isMongo={isMongo} />
     </div>
   );
