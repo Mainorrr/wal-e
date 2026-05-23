@@ -18,7 +18,7 @@ const MONGO_MUTATION_REGEX = /^db\.(\w+)\.(updateOne|updateMany|insertOne|insert
 
 function parseSetClause(setStr: string): Record<string, unknown> {
   const result: Record<string, unknown> = {};
-  const pairs = setStr.split(',');
+  const pairs = splitByComma(setStr);
   for (const pair of pairs) {
     const idx = pair.indexOf('=');
     if (idx > 0) {
@@ -32,7 +32,7 @@ function parseSetClause(setStr: string): Record<string, unknown> {
 
 function parseWhereClause(whereStr: string): Record<string, unknown> {
   const result: Record<string, unknown> = {};
-  const conditions = whereStr.split(/\s+AND\s+/i);
+  const conditions = splitByToken(whereStr, 'AND');
   for (const cond of conditions) {
     const match = cond.match(/(\w+)\s*=\s*(.+)/);
     if (match) {
@@ -45,20 +45,63 @@ function parseWhereClause(whereStr: string): Record<string, unknown> {
 function splitByComma(str: string): string[] {
   const result: string[] = [];
   let depth = 0;
+  let inQuote = false;
+  let quoteChar = '';
   let current = '';
   for (let i = 0; i < str.length; i++) {
     const c = str[i];
-    if (c === '(' || c === '[' || c === '{') depth++;
-    else if (c === ')' || c === ']' || c === '}') depth--;
-    else if (c === ',' && depth === 0) {
+    if (!inQuote && (c === "'" || c === '"')) {
+      inQuote = true;
+      quoteChar = c;
+    } else if (inQuote && c === quoteChar) {
+      inQuote = false;
+      quoteChar = '';
+    } else if (!inQuote && (c === '(' || c === '[' || c === '{')) depth++;
+    else if (!inQuote && (c === ')' || c === ']' || c === '}')) depth--;
+    else if (!inQuote && c === ',' && depth === 0) {
       result.push(current.trim());
       current = '';
-    } else {
-      current += c;
+      continue;
     }
+    current += c;
   }
   if (current.trim()) result.push(current.trim());
   return result;
+}
+
+function splitByToken(str: string, token: string): string[] {
+  const result: string[] = [];
+  let depth = 0;
+  let inQuote = false;
+  let quoteChar = '';
+  let current = '';
+  for (let i = 0; i < str.length; i++) {
+    const c = str[i];
+    if (!inQuote && (c === "'" || c === '"')) {
+      inQuote = true;
+      quoteChar = c;
+    } else if (inQuote && c === quoteChar) {
+      inQuote = false;
+      quoteChar = '';
+    } else if (!inQuote && (c === '(' || c === '[' || c === '{')) depth++;
+    else if (!inQuote && (c === ')' || c === ']' || c === '}')) depth--;
+    else if (!inQuote && depth === 0) {
+      const remaining = str.slice(i);
+      if (remaining.toUpperCase().startsWith(token)) {
+        result.push(current.trim());
+        current = '';
+        i += token.length - 1;
+        continue;
+      }
+    }
+    current += c;
+  }
+  if (current.trim()) result.push(current.trim());
+  return result;
+}
+
+function escapeSqlString(value: string): string {
+  return value.replace(/'/g, "''");
 }
 
 function parseValue(valStr: string): unknown {
@@ -159,7 +202,7 @@ export function isMutationQuery(query: string): boolean {
 }
 
 export function parseMutationQuery(query: string): ParsedMutation | null {
-  const trimmed = query.trim();
+  const trimmed = query.trim().replace(/;+$/, '');
 
   const mongoMatch = trimmed.match(MONGO_MUTATION_REGEX);
   if (mongoMatch) {
@@ -220,7 +263,7 @@ export function buildBeforeImageQuery(parsed: ParsedMutation): string {
   if (parsed.filter && Object.keys(parsed.filter).length > 0) {
     const whereParts = Object.entries(parsed.filter).map(([k, v]) => {
       if (v === null) return `${k} IS NULL`;
-      if (typeof v === 'string') return `${k} = '${v}'`;
+      if (typeof v === 'string') return `${k} = '${escapeSqlString(v)}'`;
       return `${k} = ${v}`;
     });
     sql += ` WHERE ${whereParts.join(' AND ')}`;
@@ -257,7 +300,7 @@ export function buildMutationSql(parsed: ParsedMutation): string {
       const cols = parsed.insertValues ? Object.keys(parsed.insertValues) : [];
       const vals = parsed.insertValues ? Object.values(parsed.insertValues).map((v) => {
         if (v === null) return 'NULL';
-        if (typeof v === 'string') return `'${v}'`;
+        if (typeof v === 'string') return `'${escapeSqlString(v)}'`;
         return String(v);
       }) : [];
       return `INSERT INTO ${parsed.tableOrCollection} (${cols.join(', ')}) VALUES (${vals.join(', ')})`;
@@ -265,14 +308,14 @@ export function buildMutationSql(parsed: ParsedMutation): string {
     case 'UPDATE': {
       const setParts = parsed.setClause ? Object.entries(parsed.setClause).map(([k, v]) => {
         if (v === null) return `${k} = NULL`;
-        if (typeof v === 'string') return `${k} = '${v}'`;
+        if (typeof v === 'string') return `${k} = '${escapeSqlString(v)}'`;
         return `${k} = ${v}`;
       }) : [];
       let sql = `UPDATE ${parsed.tableOrCollection} SET ${setParts.join(', ')}`;
       if (parsed.filter && Object.keys(parsed.filter).length > 0) {
         const whereParts = Object.entries(parsed.filter).map(([k, v]) => {
           if (v === null) return `${k} IS NULL`;
-          if (typeof v === 'string') return `${k} = '${v}'`;
+          if (typeof v === 'string') return `${k} = '${escapeSqlString(v)}'`;
           return `${k} = ${v}`;
         });
         sql += ` WHERE ${whereParts.join(' AND ')}`;
@@ -284,7 +327,7 @@ export function buildMutationSql(parsed: ParsedMutation): string {
       if (parsed.filter && Object.keys(parsed.filter).length > 0) {
         const whereParts = Object.entries(parsed.filter).map(([k, v]) => {
           if (v === null) return `${k} IS NULL`;
-          if (typeof v === 'string') return `${k} = '${v}'`;
+          if (typeof v === 'string') return `${k} = '${escapeSqlString(v)}'`;
           return `${k} = ${v}`;
         });
         sql += ` WHERE ${whereParts.join(' AND ')}`;

@@ -193,6 +193,7 @@ export class TransactionManager {
     const protocol = this.currentProtocol;
 
     if (protocol === 'No-Undo/Redo' || protocol === 'Undo/Redo') {
+      console.debug(`Flushing dirty pages for transaction ${tid} before commit...`);
       await this.flushDirtyPages(tid);
     }
 
