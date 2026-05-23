@@ -12,7 +12,11 @@ module.exports = {
   rules: {
     'react-refresh/only-export-components': [
       'warn',
-      { allowConstantExport: true },
+      { allowConstantExport: true, allowExportNames: ['useEngine', 'useTransaction', 'EngineProvider', 'TransactionProvider'] },
+    ],
+    '@typescript-eslint/no-unused-vars': [
+      'error',
+      { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
     ],
   },
 }
