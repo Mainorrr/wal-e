@@ -71,16 +71,39 @@ export class TransactionManager {
         table_or_collection: mutationData.table_or_collection || '',
         before_image: mutationData.before_image,
         after_image: mutationData.after_image,
-        parsedSql: buildMutationSql({
-          op: mutationData.op,
-          tableOrCollection: mutationData.table_or_collection || '',
-          setClause: mutationData.after_image as Record<string, unknown>,
-          filter: mutationData.before_image as Record<string, unknown>,
-          isMongo: false,
-        }),
+        parsedSql: buildMutationSql(this.synthesizeParsedFromMutation(mutationData)),
         isMongo: false,
       });
     }
+  }
+
+  private synthesizeParsedFromMutation(mutationData: MutationData) {
+    const table = mutationData.table_or_collection || '';
+    if (mutationData.op === 'INSERT') {
+      const values = (mutationData.after_image as Record<string, unknown> | null) || {};
+      return {
+        op: 'INSERT' as const,
+        tableOrCollection: table,
+        insertValues: values,
+        insertColumns: Object.keys(values),
+        isMongo: false,
+      };
+    }
+    if (mutationData.op === 'DELETE') {
+      return {
+        op: 'DELETE' as const,
+        tableOrCollection: table,
+        filter: (mutationData.before_image as Record<string, unknown> | null) || {},
+        isMongo: false,
+      };
+    }
+    return {
+      op: 'UPDATE' as const,
+      tableOrCollection: table,
+      setClause: (mutationData.after_image as Record<string, unknown> | null) || {},
+      filter: (mutationData.before_image as Record<string, unknown> | null) || {},
+      isMongo: false,
+    };
   }
 
   public async executeMutationFromQuery(tid: string, engineId: string, query: string): Promise<MutationData> {
@@ -115,6 +138,8 @@ export class TransactionManager {
     }
 
     const afterImage = buildAfterImage(beforeImage, parsed);
+
+    console.log(`[TM] Mutation ${parsed.op} on ${parsed.tableOrCollection} (tid=${tid}, protocol=${this.currentProtocol}) — SQL: ${buildMutationSql(parsed)}`);
 
     const mutationData: MutationData = {
       op: parsed.op,
@@ -192,11 +217,11 @@ export class TransactionManager {
 
     const protocol = this.currentProtocol;
 
-    if (protocol === 'No-Undo/Redo' || protocol === 'Undo/Redo') {
-      console.debug(`Flushing dirty pages for transaction ${tid} before commit...`);
-      await this.flushDirtyPages(tid);
-    }
-
+    // Regla WAL: el COMMIT debe estar persistido en la bitacora ANTES de
+    // aplicar las paginas sucias al motor. Esto hace que los protocolos
+    // No-Undo/Redo y Undo/Redo sean genuinamente "no-force": si un crash
+    // ocurre entre el COMMIT registrado y el flush, la recuperacion
+    // detecta la TID en redoList y aplica REDO con la after_image.
     this.wal.writeEntry({
       tid,
       op: 'COMMIT',
@@ -206,11 +231,16 @@ export class TransactionManager {
       protocol: this.currentProtocol,
     });
 
+    if (protocol === 'No-Undo/Redo' || protocol === 'Undo/Redo') {
+      console.debug(`COMMIT registrado en WAL; aplicando dirty pages para ${tid}...`);
+      await this.flushDirtyPages(tid);
+    }
+
     this.activeTransactions.set(tid, { ...txState, status: 'COMMITTED' });
     this.clearDirtyPagesForTransaction(tid);
   }
 
-  public rollbackTransaction(tid: string): void {
+  public async rollbackTransaction(tid: string): Promise<void> {
     const txState = this.activeTransactions.get(tid);
     if (!txState) {
       throw new Error(`Transaction ${tid} not found. Begin a transaction first.`);
@@ -227,18 +257,41 @@ export class TransactionManager {
     const protocol = this.currentProtocol;
 
     if (protocol === 'Undo/No-Redo' || protocol === 'Undo/Redo') {
-      this.undoCommittedWrites(tid);
+      await this.undoCommittedWrites(tid);
     }
 
     this.activeTransactions.set(tid, { ...txState, status: 'ABORTED' });
     this.clearDirtyPagesForTransaction(tid);
   }
 
-  public injectControlledCrash(): void {
+  public injectControlledCrash(): { droppedPages: number; activeTids: string[] } {
+    const droppedPages = this.dirtyPagesBuffer.size;
+    const activeTids = Array.from(this.activeTransactions.values())
+      .filter((t) => t.status === 'ACTIVE')
+      .map((t) => t.tid);
+
+    // Simula un crash del SGBD: se pierde el buffer de paginas sucias y
+    // se pierde el estado en memoria de las transacciones activas. Solo
+    // sobrevive lo que ya estaba en la bitacora persistente (BEGIN +
+    // mutaciones registradas), que es lo que RUN RECOVERY va a leer.
     this.dirtyPagesBuffer.clear();
+    for (const tid of activeTids) {
+      this.activeTransactions.delete(tid);
+    }
+    console.log(`[TM] CRASH inyectado: ${droppedPages} pagina(s) sucia(s) descartada(s); TIDs activos perdidos: ${activeTids.join(', ') || 'ninguno'}`);
+    return { droppedPages, activeTids };
   }
 
-  public runRecoveryProcedure(): { beforeState: TransactionState[]; afterState: TransactionState[] } {
+  public async runRecoveryProcedure(): Promise<{
+    beforeState: TransactionState[];
+    afterState: TransactionState[];
+    undoneTids: string[];
+    redoneTids: string[];
+    walEntriesProcessed: number;
+    protocol: RecoveryProtocol;
+    dataBefore: Array<{ key: string; engineId: string; table: string; rows: unknown[] }>;
+    dataAfter: Array<{ key: string; engineId: string; table: string; rows: unknown[] }>;
+  }> {
     const allEntries = this.wal.getEntries({});
     const beforeState = this.captureCurrentState();
 
@@ -265,31 +318,108 @@ export class TransactionManager {
     const needsUndo = protocol === 'Undo/No-Redo' || protocol === 'Undo/Redo';
     const needsRedo = protocol === 'No-Undo/Redo' || protocol === 'Undo/Redo';
 
+    const isMutation = (e: LogEntry) =>
+      e.op === 'INSERT' || e.op === 'UPDATE' || e.op === 'DELETE';
+
+    // Snapshot de tablas/colecciones afectadas antes de aplicar UNDO/REDO
+    const affectedTargets = new Map<string, { engineId: string; table: string }>();
+    for (const e of allEntries) {
+      if (!isMutation(e) || !e.table_or_collection) continue;
+      if (undoList.has(e.tid) || redoList.has(e.tid)) {
+        const key = `${e.engine_id}::${e.table_or_collection}`;
+        affectedTargets.set(key, { engineId: e.engine_id, table: e.table_or_collection });
+      }
+    }
+
+    const snapshotAll = async () => {
+      const out: Array<{ key: string; engineId: string; table: string; rows: unknown[] }> = [];
+      for (const [key, { engineId, table }] of affectedTargets) {
+        const rows = await this.snapshotTarget(engineId, table);
+        out.push({ key, engineId, table, rows });
+      }
+      return out;
+    };
+
+    const dataBefore = await snapshotAll();
+
     if (needsUndo) {
       const undoEntries = allEntries
-        .filter((e) => undoList.has(e.tid) && e.before_image !== null)
+        .filter((e) => undoList.has(e.tid) && isMutation(e))
         .reverse();
-
+      console.log(`[RECOVERY] UNDO: ${undoEntries.length} entrada(s) sobre ${undoList.size} TID(s)`);
       for (const entry of undoEntries) {
-        this.applyChange(entry.engine_id, entry.table_or_collection, entry.before_image);
+        await this.applyChange(entry, 'before');
       }
     }
 
     if (needsRedo) {
       const redoEntries = allEntries
-        .filter((e) => redoList.has(e.tid) && e.after_image !== null);
-
+        .filter((e) => redoList.has(e.tid) && isMutation(e));
+      console.log(`[RECOVERY] REDO: ${redoEntries.length} entrada(s) sobre ${redoList.size} TID(s)`);
       for (const entry of redoEntries) {
-        this.applyChange(entry.engine_id, entry.table_or_collection, entry.after_image);
+        await this.applyChange(entry, 'after');
       }
     }
 
+    // Cierre formal en la bitacora: las TIDs deshechas reciben una
+    // entrada ABORT para que la recuperacion sea idempotente entre
+    // reinicios y para que el WAL refleje el estado final.
     for (const tid of undoList) {
-      this.activeTransactions.delete(tid);
+      const txState = this.activeTransactions.get(tid);
+      const engineId = txState?.engineId
+        ?? allEntries.find((e) => e.tid === tid)?.engine_id
+        ?? 'unknown';
+      this.wal.writeEntry({
+        tid,
+        op: 'ABORT',
+        engine_id: engineId,
+        before_image: null,
+        after_image: null,
+      });
+      this.activeTransactions.set(tid, { tid, engineId, status: 'ABORTED' });
+    }
+
+    // Las TIDs committed que hayan sobrevivido al crash quedan marcadas
+    // como tal en memoria (la entrada COMMIT ya estaba en el WAL).
+    for (const tid of redoList) {
+      const txState = this.activeTransactions.get(tid);
+      const engineId = txState?.engineId
+        ?? allEntries.find((e) => e.tid === tid)?.engine_id
+        ?? 'unknown';
+      this.activeTransactions.set(tid, { tid, engineId, status: 'COMMITTED' });
     }
 
     const afterState = this.captureCurrentState();
-    return { beforeState, afterState };
+    const dataAfter = await snapshotAll();
+
+    return {
+      beforeState,
+      afterState,
+      undoneTids: needsUndo ? Array.from(undoList) : [],
+      redoneTids: needsRedo ? Array.from(redoList) : [],
+      walEntriesProcessed: allEntries.length,
+      protocol,
+      dataBefore,
+      dataAfter,
+    };
+  }
+
+  private async snapshotTarget(engineId: string, table: string): Promise<unknown[]> {
+    const engine = this.connectionManager.getEngine(engineId);
+    if (!engine) return [];
+    const conn = this.connectionManager.getConnection(engineId);
+    const isMongo = conn?.type === 'nosql';
+    const query = isMongo
+      ? `db.${table}.find({})`
+      : `SELECT * FROM ${table} LIMIT 100`;
+    try {
+      const result = await engine.executeQuery(query);
+      if (!result.success || !result.data) return [];
+      if (Array.isArray(result.data)) return result.data;
+      return [result.data];
+    } catch {
+      return [];
+    }
   }
 
   public getActiveTransactions(): TransactionState[] {
@@ -334,15 +464,21 @@ export class TransactionManager {
     if (!engine) return;
 
     if (entry.parsedSql) {
-      await engine.executeQuery(entry.parsedSql);
+      console.log(`[TM] Flushing to disk (tid=${tid}): ${entry.parsedSql}`);
+      const result = await engine.executeQuery(entry.parsedSql);
+      if (!result.success) {
+        console.error(`[TM] Flush FAILED for ${entry.op} on ${entry.table_or_collection}: ${result.error}`);
+        throw new Error(`Flush failed for ${entry.op} on ${entry.table_or_collection}: ${result.error}`);
+      }
     }
   }
 
   private async flushDirtyPages(tid: string): Promise<void> {
-    for (const [key, value] of this.dirtyPagesBuffer) {
-      if (key.startsWith(`${tid}:`)) {
-        await this.flushToDisk(tid, value);
-      }
+    const keys = Array.from(this.dirtyPagesBuffer.keys()).filter((k) => k.startsWith(`${tid}:`));
+    console.log(`[TM] Flushing ${keys.length} dirty page(s) for tid=${tid}`);
+    for (const key of keys) {
+      const value = this.dirtyPagesBuffer.get(key);
+      if (value) await this.flushToDisk(tid, value);
     }
   }
 
@@ -354,22 +490,124 @@ export class TransactionManager {
     }
   }
 
-  private undoCommittedWrites(tid: string): void {
+  private async undoCommittedWrites(tid: string): Promise<void> {
     const entries = this.wal.getEntries({ tid });
     const mutationEntries = entries
       .filter((e: LogEntry) =>
-        (e.op === 'INSERT' || e.op === 'UPDATE' || e.op === 'DELETE') &&
-        e.before_image !== null
+        e.op === 'INSERT' || e.op === 'UPDATE' || e.op === 'DELETE'
       )
       .reverse();
 
     for (const entry of mutationEntries) {
-      this.applyChange(entry.engine_id, entry.table_or_collection, entry.before_image);
+      await this.applyChange(entry, 'before');
     }
   }
 
-  private applyChange(_engineId: string, _tableOrCollection: string | undefined, _data: DataSnapshot): void {
-    // TODO: Build and execute the appropriate inverse or reapply operation via the engine
+  private pickFilter(snapshot: Record<string, unknown>, isMongo = false): Record<string, unknown> {
+    // En Mongo evitamos _id porque al round-tripear por IPC pierde el tipo ObjectId.
+    const preferred = isMongo
+      ? ['carne', 'codigo', 'pk', 'uuid', 'id']
+      : ['id', '_id', 'carne', 'codigo', 'pk', 'uuid'];
+    for (const k of preferred) {
+      if (k in snapshot && snapshot[k] !== undefined && snapshot[k] !== null) {
+        return { [k]: snapshot[k] };
+      }
+    }
+    for (const k of Object.keys(snapshot)) {
+      if (k === '_id') continue;
+      const v = snapshot[k];
+      if (v !== undefined && v !== null) return { [k]: v };
+    }
+    return {};
+  }
+
+  private stripImmutableKeys(row: Record<string, unknown>, isMongo: boolean): Record<string, unknown> {
+    if (!isMongo) return row;
+    const { _id, ...rest } = row;
+    void _id;
+    return rest;
+  }
+
+  private async applyChange(entry: LogEntry, target: 'before' | 'after'): Promise<void> {
+    if (!entry.table_or_collection) return;
+    const engine = this.connectionManager.getEngine(entry.engine_id);
+    if (!engine) return;
+    const conn = this.connectionManager.getConnection(entry.engine_id);
+    const isMongo = conn?.type === 'nosql';
+    const table = entry.table_or_collection;
+
+    let sql = '';
+
+    if (target === 'after') {
+      if (entry.op === 'INSERT' && entry.after_image) {
+        const row = entry.after_image as Record<string, unknown>;
+        sql = buildMutationSql({
+          op: 'INSERT',
+          tableOrCollection: table,
+          insertValues: row,
+          insertColumns: Object.keys(row),
+          isMongo,
+        });
+      } else if (entry.op === 'UPDATE' && entry.after_image && entry.before_image) {
+        sql = buildMutationSql({
+          op: 'UPDATE',
+          tableOrCollection: table,
+          setClause: this.stripImmutableKeys(entry.after_image as Record<string, unknown>, isMongo),
+          filter: this.pickFilter(entry.before_image as Record<string, unknown>, isMongo),
+          isMongo,
+        });
+      } else if (entry.op === 'DELETE' && entry.before_image) {
+        sql = buildMutationSql({
+          op: 'DELETE',
+          tableOrCollection: table,
+          filter: this.pickFilter(entry.before_image as Record<string, unknown>, isMongo),
+          isMongo,
+        });
+      }
+    } else {
+      if (entry.op === 'INSERT' && entry.after_image) {
+        sql = buildMutationSql({
+          op: 'DELETE',
+          tableOrCollection: table,
+          filter: this.pickFilter(entry.after_image as Record<string, unknown>, isMongo),
+          isMongo,
+        });
+      } else if (entry.op === 'UPDATE' && entry.before_image && entry.after_image) {
+        sql = buildMutationSql({
+          op: 'UPDATE',
+          tableOrCollection: table,
+          setClause: this.stripImmutableKeys(entry.before_image as Record<string, unknown>, isMongo),
+          filter: this.pickFilter(entry.after_image as Record<string, unknown>, isMongo),
+          isMongo,
+        });
+      } else if (entry.op === 'DELETE' && entry.before_image) {
+        const row = this.stripImmutableKeys(entry.before_image as Record<string, unknown>, isMongo);
+        sql = buildMutationSql({
+          op: 'INSERT',
+          tableOrCollection: table,
+          insertValues: row,
+          insertColumns: Object.keys(row),
+          isMongo,
+        });
+      }
+    }
+
+    if (sql) {
+      const result = await engine.executeQuery(sql);
+      if (!result.success) {
+        const err = result.error ?? '';
+        const isDuplicate = /duplicate key|unique|PRIMARY KEY|already exists|E11000/i.test(err);
+        if (target === 'after' && entry.op === 'INSERT' && isDuplicate) {
+          // REDO idempotente: el INSERT ya estaba en el motor (los datos
+          // alcanzaron a llegar antes del crash). No es un error real.
+          console.debug(`[RECOVERY] REDO de INSERT ya presente (idempotente): ${sql}`);
+        } else {
+          console.warn(`[RECOVERY] applyChange fallo (${target} ${entry.op}) en ${table}: ${err}`);
+        }
+      } else {
+        console.debug(`[RECOVERY] applyChange ok [${target}] [${entry.op}]: ${sql}`);
+      }
+    }
   }
 
   private captureCurrentState(): TransactionState[] {

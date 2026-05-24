@@ -3,8 +3,8 @@ import { TransactionProvider, useTransaction } from './context/TransactionContex
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { TopBar } from './components/TopBar/TopBar';
 import { QueryEditor } from './components/QueryEditor/QueryEditor';
-import { WALConsole } from './components/WALConsole/WALConsole';
 import { TransactionManagerView } from './components/TransactionManager/TransactionManagerView';
+import { RecoveryView } from './components/RecoveryView/RecoveryView';
 
 function AppContent() {
   const { activeView } = useTransaction();
@@ -17,7 +17,7 @@ function AppContent() {
         <div className="flex-1 flex flex-col p-gutter gap-gutter overflow-hidden">
           {activeView === 'query' && <QueryEditor />}
           {activeView === 'transaction' && <TransactionManagerView />}
-          {activeView === 'recovery' && <WALConsole />}
+          {activeView === 'recovery' && <RecoveryView />}
         </div>
       </main>
     </div>

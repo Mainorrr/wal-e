@@ -27,8 +27,17 @@ export interface IElectronAPI {
   }>;
   getWalLogs(filters?: { tid?: string; startTime?: number; endTime?: number }): Promise<WalEntry[]>;
   clearWal(): Promise<{ success: boolean }>;
-  triggerCrash(): Promise<{ success: boolean }>;
-  triggerRecovery(): Promise<{ beforeState: unknown; afterState: unknown }>;
+  triggerCrash(): Promise<{ success: boolean; droppedPages: number; activeTids: string[] }>;
+  triggerRecovery(): Promise<{
+    beforeState: Array<{ tid: string; engineId: string; status: string }>;
+    afterState: Array<{ tid: string; engineId: string; status: string }>;
+    undoneTids: string[];
+    redoneTids: string[];
+    walEntriesProcessed: number;
+    protocol: RecoveryProtocol;
+    dataBefore: Array<{ key: string; engineId: string; table: string; rows: unknown[] }>;
+    dataAfter: Array<{ key: string; engineId: string; table: string; rows: unknown[] }>;
+  }>;
   onWalEntry(callback: (entry: WalEntry) => void): () => void;
   loadDemo(): Promise<{ success: boolean }>;
   executeQuery(engineId: string, query: string, tid?: string): Promise<{

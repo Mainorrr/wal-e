@@ -4,6 +4,8 @@ export interface QueryResult {
   success: boolean;
   data: QueryResultData;
   error?: string;
+  command?: string;
+  rowCount?: number;
 }
 
 export interface EngineConnection {

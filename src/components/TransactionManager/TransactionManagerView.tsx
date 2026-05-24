@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useTransaction } from '../../context/TransactionContext';
 import { MaterialSymbol } from '../shared/MaterialSymbol';
 
@@ -20,6 +21,7 @@ export function TransactionManagerView() {
   const txWalEntries = walEntries.filter((e) => e.tid === selectedTid);
   const txDirtyPages = dirtyPages.filter(([key]) => key.startsWith(`${selectedTid}:`));
   const isTxActive = tx?.status === 'ACTIVE';
+  const [actionError, setActionError] = useState<string | null>(null);
 
   if (!selectedTid) {
     return (
@@ -34,14 +36,24 @@ export function TransactionManagerView() {
 
   const handleCommit = async () => {
     if (!selectedTid) return;
-    await commit(selectedTid);
+    setActionError(null);
+    const result = await commit(selectedTid);
+    if (!result.success) {
+      setActionError(result.error || 'Commit failed');
+      return;
+    }
     setSelectedTid(null);
     setActiveView('query');
   };
 
   const handleRollback = async () => {
     if (!selectedTid) return;
-    await rollback(selectedTid);
+    setActionError(null);
+    const result = await rollback(selectedTid);
+    if (!result.success) {
+      setActionError(result.error || 'Rollback failed');
+      return;
+    }
     setSelectedTid(null);
     setActiveView('query');
   };
@@ -98,6 +110,16 @@ export function TransactionManagerView() {
             ROLLBACK
           </button>
         </div>
+
+        {actionError && (
+          <div className="mx-4 mb-4 border border-error rounded bg-error-container/30 p-3">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="material-symbols-outlined text-error text-base">error</span>
+              <p className="text-error font-bold text-[11px] uppercase tracking-wider">Transaction Error</p>
+            </div>
+            <pre className="text-on-error-container font-code-sm text-code-sm whitespace-pre-wrap break-words">{actionError}</pre>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 flex gap-gutter overflow-hidden">

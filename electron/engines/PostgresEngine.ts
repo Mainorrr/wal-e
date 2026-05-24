@@ -41,8 +41,13 @@ export class PostgresEngine implements IBaseEngine {
     try {
       console.log(`Executing query on PostgresEngine: ${query}`);
       const result = await this.pool.query(query);
-      console.log(`Query result: ${JSON.stringify(result.rows)}`);
-      return { success: true, data: result.rows };
+      console.log(`Query result (${result.command} rowCount=${result.rowCount}): ${JSON.stringify(result.rows)}`);
+      return {
+        success: true,
+        data: result.rows,
+        command: result.command,
+        rowCount: result.rowCount ?? 0,
+      };
     } catch (error) {
       return { success: false, data: null, error: (error as Error).message };
     }

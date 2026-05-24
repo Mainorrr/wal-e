@@ -2,11 +2,28 @@ import { useEngine } from '../../context/EngineContext';
 
 interface ResultsTableProps {
   isMongo: boolean;
-  queryResult?: { data: unknown; isMutation: boolean } | null;
+  queryResult?: { data: unknown; isMutation: boolean; command?: string; rowCount?: number } | null;
+  error?: string | null;
 }
 
-export function ResultsTable({ isMongo, queryResult }: ResultsTableProps) {
+export function ResultsTable({ isMongo, queryResult, error }: ResultsTableProps) {
   const { activeEngineId } = useEngine();
+
+  if (error) {
+    return (
+      <div className="h-1/3 border-t border-outline-variant bg-surface overflow-auto p-4">
+        <div className="border border-error rounded bg-error-container/30 p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="material-symbols-outlined text-error text-xl">error</span>
+            <p className="text-error font-bold text-code-sm uppercase tracking-wider">Query Error</p>
+          </div>
+          <pre className="text-on-error-container font-code-sm text-code-sm whitespace-pre-wrap break-words">
+            {error}
+          </pre>
+        </div>
+      </div>
+    );
+  }
 
   if (!activeEngineId) {
     return (
@@ -43,10 +60,33 @@ export function ResultsTable({ isMongo, queryResult }: ResultsTableProps) {
   }
 
   if (!rows || rows.length === 0) {
+    if (queryResult) {
+      const cmd = queryResult.command;
+      const isSelect = cmd === 'SELECT';
+      const label = cmd ? `${cmd} executed successfully` : 'Query executed successfully';
+      const detail = isSelect
+        ? '0 filas devueltas.'
+        : cmd === 'CREATE'
+          ? 'Tabla creada (o ya existía si se usó IF NOT EXISTS). Esta sentencia DDL no se registra en el WAL.'
+          : cmd
+            ? `${queryResult.rowCount ?? 0} fila(s) afectada(s).`
+            : 'La sentencia se ejecutó sin filas devueltas.';
+      return (
+        <div className="h-1/3 border-t border-outline-variant bg-surface overflow-auto p-4">
+          <div className="border border-secondary/40 rounded bg-secondary-container/20 p-3">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="material-symbols-outlined text-secondary text-base">check_circle</span>
+              <p className="text-secondary font-bold text-[11px] uppercase tracking-wider">{label}</p>
+            </div>
+            <p className="text-on-surface-variant font-code-sm text-code-sm">{detail}</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="h-1/3 border-t border-outline-variant bg-surface overflow-auto flex items-center justify-center">
         <p className="text-on-surface-variant text-code-sm font-code-md italic">
-          No results. Run a SELECT query.
+          Pulsa Run para ejecutar una query.
         </p>
       </div>
     );

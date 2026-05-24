@@ -10,6 +10,18 @@ export interface DisplayTransaction {
   status: TxStatus;
 }
 
+export interface RecoveryResult {
+  beforeState: Array<{ tid: string; engineId: string; status: string }>;
+  afterState: Array<{ tid: string; engineId: string; status: string }>;
+  undoneTids: string[];
+  redoneTids: string[];
+  walEntriesProcessed: number;
+  protocol: RecoveryProtocol;
+  dataBefore: Array<{ key: string; engineId: string; table: string; rows: unknown[] }>;
+  dataAfter: Array<{ key: string; engineId: string; table: string; rows: unknown[] }>;
+  ranAt: number;
+}
+
 interface TransactionContextValue {
   currentTid: string;
   protocol: RecoveryProtocol;
@@ -26,8 +38,14 @@ interface TransactionContextValue {
   commit: (tid: string) => Promise<{ success: boolean; error?: string }>;
   rollback: (tid: string) => Promise<{ success: boolean; error?: string }>;
   setProtocol: (p: RecoveryProtocol) => Promise<void>;
-  triggerCrash: () => Promise<void>;
-  triggerRecovery: () => Promise<{ beforeState: unknown; afterState: unknown } | null>;
+  triggerCrash: () => Promise<{ droppedPages: number; activeTids: string[] }>;
+  triggerRecovery: () => Promise<RecoveryResult | null>;
+  lastCrash: { droppedPages: number; activeTids: string[]; at: number } | null;
+  clearLastCrash: () => void;
+  pendingQuery: string | null;
+  setPendingQuery: (q: string | null) => void;
+  recoveryResult: RecoveryResult | null;
+  clearRecoveryResult: () => void;
   clearWal: () => Promise<void>;
   loadDemo: () => Promise<void>;
   executeQuery: (engineId: string, query: string, tid?: string) => Promise<{
@@ -49,6 +67,9 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
   const [selectedTid, setSelectedTid] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'query' | 'transaction' | 'recovery'>('query');
   const [allTransactions, setAllTransactions] = useState<DisplayTransaction[]>([]);
+  const [recoveryResult, setRecoveryResult] = useState<RecoveryResult | null>(null);
+  const [lastCrash, setLastCrash] = useState<{ droppedPages: number; activeTids: string[]; at: number } | null>(null);
+  const [pendingQuery, setPendingQuery] = useState<string | null>(null);
 
   function reconstructTransactions(entries: WalEntry[]): DisplayTransaction[] {
     const grouped = new Map<string, WalEntry[]>();
@@ -99,7 +120,7 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
     const merged: DisplayTransaction[] = reconstructed.map((r) => {
       const active = activeTransactions.find((a) => a.tid === r.tid);
       if (active) {
-        return { ...r, status: 'ACTIVE' as TxStatus };
+        return { ...r, status: active.status as TxStatus };
       }
       return r;
     });
@@ -108,6 +129,9 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
 
   const begin = useCallback(async (tid: string, engineId: string) => {
     const result = await window.api.beginTransaction(tid, engineId);
+    if (result.success) {
+      setSelectedTid(tid);
+    }
     await refreshStatus();
     return result;
   }, [refreshStatus]);
@@ -136,15 +160,26 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const triggerCrash = useCallback(async () => {
-    await window.api.triggerCrash();
+    const result = await window.api.triggerCrash();
+    setLastCrash({ droppedPages: result.droppedPages, activeTids: result.activeTids, at: Date.now() });
+    setSelectedTid(null);
     await refreshStatus();
+    return { droppedPages: result.droppedPages, activeTids: result.activeTids };
   }, [refreshStatus]);
+
+  const clearLastCrash = useCallback(() => setLastCrash(null), []);
 
   const triggerRecovery = useCallback(async () => {
     const result = await window.api.triggerRecovery();
+    const stamped: RecoveryResult = { ...result, ranAt: Date.now() };
+    setRecoveryResult(stamped);
     await refreshStatus();
-    return result;
+    const entries = await window.api.getWalLogs();
+    setWalEntries(entries as WalEntry[]);
+    return stamped;
   }, [refreshStatus]);
+
+  const clearRecoveryResult = useCallback(() => setRecoveryResult(null), []);
 
   const clearWal = useCallback(async () => {
     await window.api.clearWal();
@@ -183,7 +218,13 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
       rollback,
       setProtocol,
       triggerCrash,
+      lastCrash,
+      clearLastCrash,
+      pendingQuery,
+      setPendingQuery,
       triggerRecovery,
+      recoveryResult,
+      clearRecoveryResult,
       clearWal,
       loadDemo,
       executeQuery,

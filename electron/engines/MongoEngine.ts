@@ -1,5 +1,6 @@
 import { IBaseEngine, QueryResult } from './EngineInterface';
 import type { EngineConfig, MongoConfig } from '../types';
+import { parseRelaxedJson } from '../core/jsonUtils';
 
 interface ParsedMongoCommand {
   collection: string;
@@ -8,20 +9,35 @@ interface ParsedMongoCommand {
 }
 
 function parseMongoCommand(query: string): ParsedMongoCommand | null {
-  const match = query.match(/^db\.(\w+)\.(\w+)\(([\s\S]*)\)$/);
+  const sanitized = query.trim().replace(/;+$/, '').trim();
+  const match = sanitized.match(/^db\.(\w+)\.(\w+)\(([\s\S]*)\)$/);
   if (!match) return null;
   const collection = match[1];
   const method = match[2];
   const argsStr = match[3];
-  
+
   const args: string[] = [];
   let depth = 0;
+  let inQuote = false;
+  let quoteChar = '';
   let current = '';
   for (let i = 0; i < argsStr.length; i++) {
     const c = argsStr[i];
-    if (c === '{' || c === '[') depth++;
-    else if (c === '}' || c === ']') depth--;
-    else if (c === ',' && depth === 0) {
+    if (!inQuote && (c === '"' || c === "'")) {
+      inQuote = true;
+      quoteChar = c;
+      current += c;
+    } else if (inQuote && c === quoteChar && argsStr[i - 1] !== '\\') {
+      inQuote = false;
+      quoteChar = '';
+      current += c;
+    } else if (!inQuote && (c === '{' || c === '[')) {
+      depth++;
+      current += c;
+    } else if (!inQuote && (c === '}' || c === ']')) {
+      depth--;
+      current += c;
+    } else if (!inQuote && c === ',' && depth === 0) {
       args.push(current.trim());
       current = '';
     } else {
@@ -29,16 +45,8 @@ function parseMongoCommand(query: string): ParsedMongoCommand | null {
     }
   }
   if (current.trim()) args.push(current.trim());
-  
-  return { collection, method, args };
-}
 
-function parseJsonSafe(str: string): Record<string, unknown> {
-  try {
-    return JSON.parse(str);
-  } catch {
-    return {};
-  }
+  return { collection, method, args };
 }
 
 export class MongoEngine implements IBaseEngine {
@@ -79,7 +87,7 @@ export class MongoEngine implements IBaseEngine {
       switch (parsed.method) {
         case 'find':
         case 'findOne': {
-          const filter = parseJsonSafe(parsed.args[0] || '{}');
+          const filter = parseRelaxedJson(parsed.args[0] || '{}');
           const method = parsed.method === 'find' ? 'find' : 'findOne';
           result = method === 'find'
             ? await collection.find(filter).toArray()
@@ -87,34 +95,34 @@ export class MongoEngine implements IBaseEngine {
           return { success: true, data: result };
         }
         case 'insertOne': {
-          const doc = parseJsonSafe(parsed.args[0] || '{}');
+          const doc = parseRelaxedJson(parsed.args[0] || '{}');
           result = await collection.insertOne(doc);
           return { success: true, data: { insertedId: result.insertedId } };
         }
         case 'insertMany': {
-          const docs = parseJsonSafe(parsed.args[0] || '[]');
+          const docs = parseRelaxedJson(parsed.args[0] || '[]');
           result = await collection.insertMany(Array.isArray(docs) ? docs : []);
           return { success: true, data: { insertedCount: result.insertedCount } };
         }
         case 'updateOne': {
-          const filter = parseJsonSafe(parsed.args[0] || '{}');
-          const update = parseJsonSafe(parsed.args[1] || '{}');
+          const filter = parseRelaxedJson(parsed.args[0] || '{}');
+          const update = parseRelaxedJson(parsed.args[1] || '{}');
           result = await collection.updateOne(filter, update);
           return { success: true, data: { modifiedCount: result.modifiedCount } };
         }
         case 'updateMany': {
-          const filter = parseJsonSafe(parsed.args[0] || '{}');
-          const update = parseJsonSafe(parsed.args[1] || '{}');
+          const filter = parseRelaxedJson(parsed.args[0] || '{}');
+          const update = parseRelaxedJson(parsed.args[1] || '{}');
           result = await collection.updateMany(filter, update);
           return { success: true, data: { modifiedCount: result.modifiedCount } };
         }
         case 'deleteOne': {
-          const filter = parseJsonSafe(parsed.args[0] || '{}');
+          const filter = parseRelaxedJson(parsed.args[0] || '{}');
           result = await collection.deleteOne(filter);
           return { success: true, data: { deletedCount: result.deletedCount } };
         }
         case 'deleteMany': {
-          const filter = parseJsonSafe(parsed.args[0] || '{}');
+          const filter = parseRelaxedJson(parsed.args[0] || '{}');
           result = await collection.deleteMany(filter);
           return { success: true, data: { deletedCount: result.deletedCount } };
         }
