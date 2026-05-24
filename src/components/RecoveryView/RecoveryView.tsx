@@ -194,82 +194,85 @@ export function RecoveryView() {
         </div>
       )}
 
-      <div className="bg-surface-container-low rounded-lg border border-outline-variant overflow-hidden">
-        <div className="px-4 py-3 bg-surface-container-highest border-b border-outline-variant flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <MaterialSymbol icon="bolt" size={18} className="text-tertiary" />
-            <span className="font-label-caps text-label-caps text-primary">RECOVERY PROCEDURE</span>
-            <span className="text-[10px] text-outline">Protocolo activo:</span>
-            <span className="font-code-md text-tertiary text-[11px]">{protocol}</span>
+      <div className="bg-surface-container-low rounded-lg border border-outline-variant overflow-hidden shrink-0">
+        <div className="px-3 py-1.5 bg-surface-container-highest border-b border-outline-variant flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <MaterialSymbol icon="bolt" size={14} className="text-tertiary" />
+            <span className="font-label-caps text-[10px] text-primary tracking-wider uppercase">Recovery Procedure</span>
+            <span className="text-[9px] text-outline">·</span>
+            <span className="text-[9px] text-outline">Protocolo:</span>
+            <span className="font-code-md text-tertiary text-[10px] truncate">{protocol}</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 shrink-0">
             {recoveryResult && (
               <button
                 onClick={clearRecoveryResult}
-                className="px-3 py-1.5 text-[11px] font-bold rounded bg-surface-container-high text-on-surface-variant hover:brightness-110"
+                className="px-2 py-1 text-[10px] font-bold rounded bg-surface-container-high text-on-surface-variant hover:brightness-110"
               >
-                CLEAR RESULT
+                CLEAR
               </button>
             )}
             <button
               onClick={handleRun}
-              className="px-3 py-1.5 bg-tertiary-container text-on-tertiary-container text-[11px] font-bold rounded flex items-center gap-2 hover:brightness-110 transition-all"
+              className="px-2 py-1 bg-tertiary-container text-on-tertiary-container text-[10px] font-bold rounded flex items-center gap-1 hover:brightness-110 transition-all"
             >
-              <MaterialSymbol icon="bolt" size={14} />
+              <MaterialSymbol icon="bolt" size={12} />
               RUN RECOVERY
             </button>
           </div>
         </div>
 
-        {!recoveryResult ? (
-          <div className="p-8 flex flex-col items-center justify-center text-center">
-            <MaterialSymbol icon="history" size={40} className="text-outline mb-3" />
-            <p className="text-on-surface-variant text-sm">
-              Ejecuta <span className="font-bold text-tertiary">RUN RECOVERY</span> para reconstruir el estado a partir de la bitácora.
-            </p>
-            <p className="text-outline text-[11px] mt-2 max-w-md">
-              Según el protocolo activo se ejecutará UNDO sobre transacciones sin commit y/o REDO sobre transacciones committed.
-            </p>
-          </div>
-        ) : (
-          <div className="p-4 grid grid-cols-4 gap-4 text-[12px]">
-            <div className="space-y-1">
-              <span className="text-[10px] text-outline font-label-caps uppercase">Protocolo aplicado</span>
-              <p className="font-code-md text-tertiary">{recoveryResult.protocol}</p>
+        {recoveryResult && (
+          <div className="px-3 py-2 grid grid-cols-4 gap-3 text-[11px] border-b border-outline-variant">
+            <div className="space-y-0.5">
+              <span className="text-[9px] text-outline font-label-caps uppercase">Protocolo</span>
+              <p className="font-code-md text-tertiary text-[11px]">{recoveryResult.protocol}</p>
             </div>
-            <div className="space-y-1">
-              <span className="text-[10px] text-outline font-label-caps uppercase">Entradas WAL procesadas</span>
-              <p className="font-code-md text-primary">{recoveryResult.walEntriesProcessed}</p>
+            <div className="space-y-0.5">
+              <span className="text-[9px] text-outline font-label-caps uppercase">WAL procesadas</span>
+              <p className="font-code-md text-primary text-[11px]">{recoveryResult.walEntriesProcessed}</p>
             </div>
-            <div className="space-y-1">
-              <span className="text-[10px] text-outline font-label-caps uppercase">UNDO ejecutados</span>
-              <p className="font-code-md text-error">{recoveryResult.undoneTids.length}</p>
+            <div className="space-y-0.5">
+              <span className="text-[9px] text-outline font-label-caps uppercase">UNDO</span>
+              <p className="font-code-md text-error text-[11px]">{recoveryResult.undoneTids.length}</p>
             </div>
-            <div className="space-y-1">
-              <span className="text-[10px] text-outline font-label-caps uppercase">REDO ejecutados</span>
-              <p className="font-code-md text-secondary">{recoveryResult.redoneTids.length}</p>
+            <div className="space-y-0.5">
+              <span className="text-[9px] text-outline font-label-caps uppercase">REDO</span>
+              <p className="font-code-md text-secondary text-[11px]">{recoveryResult.redoneTids.length}</p>
             </div>
           </div>
         )}
       </div>
 
-      {recoveryResult && (
-        <>
-          <div className="flex gap-gutter min-h-[180px]">
-            <StateTable title="TRANSACCIONES ANTES" rows={recoveryResult.beforeState} />
-            <StateTable title="TRANSACCIONES DESPUÉS" rows={recoveryResult.afterState} />
-            <TidList title="UNDO TIDs" tids={recoveryResult.undoneTids} accent="error" />
-            <TidList title="REDO TIDs" tids={recoveryResult.redoneTids} accent="secondary" />
+      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-gutter pr-1">
+        {!recoveryResult ? (
+          <div className="bg-surface-container-low rounded-lg border border-outline-variant p-6 flex flex-col items-center justify-center text-center">
+            <MaterialSymbol icon="history" size={32} className="text-outline mb-2" />
+            <p className="text-on-surface-variant text-[12px]">
+              Ejecuta <span className="font-bold text-tertiary">RUN RECOVERY</span> para reconstruir el estado a partir de la bitácora.
+            </p>
+            <p className="text-outline text-[10px] mt-1 max-w-md">
+              Según el protocolo activo se ejecutará UNDO sobre transacciones sin commit y/o REDO sobre transacciones committed.
+            </p>
           </div>
+        ) : (
+          <>
+            <div className="flex gap-gutter min-h-[180px]">
+              <StateTable title="TRANSACCIONES ANTES" rows={recoveryResult.beforeState} />
+              <StateTable title="TRANSACCIONES DESPUÉS" rows={recoveryResult.afterState} />
+              <TidList title="UNDO TIDs" tids={recoveryResult.undoneTids} accent="error" />
+              <TidList title="REDO TIDs" tids={recoveryResult.redoneTids} accent="secondary" />
+            </div>
 
-          <DataSnapshotsPanel
-            before={recoveryResult.dataBefore}
-            after={recoveryResult.dataAfter}
-          />
-        </>
-      )}
+            <DataSnapshotsPanel
+              before={recoveryResult.dataBefore}
+              after={recoveryResult.dataAfter}
+            />
+          </>
+        )}
 
-      <WALConsole />
+        <WALConsole />
+      </div>
     </div>
   );
 }

@@ -139,6 +139,8 @@ export class TransactionManager {
 
     const afterImage = buildAfterImage(beforeImage, parsed);
 
+    console.log(`[TM] Mutation ${parsed.op} on ${parsed.tableOrCollection} (tid=${tid}, protocol=${this.currentProtocol}) — SQL: ${buildMutationSql(parsed)}`);
+
     const mutationData: MutationData = {
       op: parsed.op,
       table_or_collection: parsed.tableOrCollection,
@@ -215,11 +217,11 @@ export class TransactionManager {
 
     const protocol = this.currentProtocol;
 
-    if (protocol === 'No-Undo/Redo' || protocol === 'Undo/Redo') {
-      console.debug(`Flushing dirty pages for transaction ${tid} before commit...`);
-      await this.flushDirtyPages(tid);
-    }
-
+    // Regla WAL: el COMMIT debe estar persistido en la bitacora ANTES de
+    // aplicar las paginas sucias al motor. Esto hace que los protocolos
+    // No-Undo/Redo y Undo/Redo sean genuinamente "no-force": si un crash
+    // ocurre entre el COMMIT registrado y el flush, la recuperacion
+    // detecta la TID en redoList y aplica REDO con la after_image.
     this.wal.writeEntry({
       tid,
       op: 'COMMIT',
@@ -228,6 +230,11 @@ export class TransactionManager {
       after_image: null,
       protocol: this.currentProtocol,
     });
+
+    if (protocol === 'No-Undo/Redo' || protocol === 'Undo/Redo') {
+      console.debug(`COMMIT registrado en WAL; aplicando dirty pages para ${tid}...`);
+      await this.flushDirtyPages(tid);
+    }
 
     this.activeTransactions.set(tid, { ...txState, status: 'COMMITTED' });
     this.clearDirtyPagesForTransaction(tid);
@@ -262,7 +269,16 @@ export class TransactionManager {
     const activeTids = Array.from(this.activeTransactions.values())
       .filter((t) => t.status === 'ACTIVE')
       .map((t) => t.tid);
+
+    // Simula un crash del SGBD: se pierde el buffer de paginas sucias y
+    // se pierde el estado en memoria de las transacciones activas. Solo
+    // sobrevive lo que ya estaba en la bitacora persistente (BEGIN +
+    // mutaciones registradas), que es lo que RUN RECOVERY va a leer.
     this.dirtyPagesBuffer.clear();
+    for (const tid of activeTids) {
+      this.activeTransactions.delete(tid);
+    }
+    console.log(`[TM] CRASH inyectado: ${droppedPages} pagina(s) sucia(s) descartada(s); TIDs activos perdidos: ${activeTids.join(', ') || 'ninguno'}`);
     return { droppedPages, activeTids };
   }
 
@@ -330,6 +346,7 @@ export class TransactionManager {
       const undoEntries = allEntries
         .filter((e) => undoList.has(e.tid) && isMutation(e))
         .reverse();
+      console.log(`[RECOVERY] UNDO: ${undoEntries.length} entrada(s) sobre ${undoList.size} TID(s)`);
       for (const entry of undoEntries) {
         await this.applyChange(entry, 'before');
       }
@@ -338,13 +355,38 @@ export class TransactionManager {
     if (needsRedo) {
       const redoEntries = allEntries
         .filter((e) => redoList.has(e.tid) && isMutation(e));
+      console.log(`[RECOVERY] REDO: ${redoEntries.length} entrada(s) sobre ${redoList.size} TID(s)`);
       for (const entry of redoEntries) {
         await this.applyChange(entry, 'after');
       }
     }
 
+    // Cierre formal en la bitacora: las TIDs deshechas reciben una
+    // entrada ABORT para que la recuperacion sea idempotente entre
+    // reinicios y para que el WAL refleje el estado final.
     for (const tid of undoList) {
-      this.activeTransactions.delete(tid);
+      const txState = this.activeTransactions.get(tid);
+      const engineId = txState?.engineId
+        ?? allEntries.find((e) => e.tid === tid)?.engine_id
+        ?? 'unknown';
+      this.wal.writeEntry({
+        tid,
+        op: 'ABORT',
+        engine_id: engineId,
+        before_image: null,
+        after_image: null,
+      });
+      this.activeTransactions.set(tid, { tid, engineId, status: 'ABORTED' });
+    }
+
+    // Las TIDs committed que hayan sobrevivido al crash quedan marcadas
+    // como tal en memoria (la entrada COMMIT ya estaba en el WAL).
+    for (const tid of redoList) {
+      const txState = this.activeTransactions.get(tid);
+      const engineId = txState?.engineId
+        ?? allEntries.find((e) => e.tid === tid)?.engine_id
+        ?? 'unknown';
+      this.activeTransactions.set(tid, { tid, engineId, status: 'COMMITTED' });
     }
 
     const afterState = this.captureCurrentState();
@@ -422,15 +464,21 @@ export class TransactionManager {
     if (!engine) return;
 
     if (entry.parsedSql) {
-      await engine.executeQuery(entry.parsedSql);
+      console.log(`[TM] Flushing to disk (tid=${tid}): ${entry.parsedSql}`);
+      const result = await engine.executeQuery(entry.parsedSql);
+      if (!result.success) {
+        console.error(`[TM] Flush FAILED for ${entry.op} on ${entry.table_or_collection}: ${result.error}`);
+        throw new Error(`Flush failed for ${entry.op} on ${entry.table_or_collection}: ${result.error}`);
+      }
     }
   }
 
   private async flushDirtyPages(tid: string): Promise<void> {
-    for (const [key, value] of this.dirtyPagesBuffer) {
-      if (key.startsWith(`${tid}:`)) {
-        await this.flushToDisk(tid, value);
-      }
+    const keys = Array.from(this.dirtyPagesBuffer.keys()).filter((k) => k.startsWith(`${tid}:`));
+    console.log(`[TM] Flushing ${keys.length} dirty page(s) for tid=${tid}`);
+    for (const key of keys) {
+      const value = this.dirtyPagesBuffer.get(key);
+      if (value) await this.flushToDisk(tid, value);
     }
   }
 
@@ -547,9 +595,17 @@ export class TransactionManager {
     if (sql) {
       const result = await engine.executeQuery(sql);
       if (!result.success) {
-        console.warn(`Recovery applyChange failed for ${entry.op} (${target}) on ${table}: ${result.error}`);
+        const err = result.error ?? '';
+        const isDuplicate = /duplicate key|unique|PRIMARY KEY|already exists|E11000/i.test(err);
+        if (target === 'after' && entry.op === 'INSERT' && isDuplicate) {
+          // REDO idempotente: el INSERT ya estaba en el motor (los datos
+          // alcanzaron a llegar antes del crash). No es un error real.
+          console.debug(`[RECOVERY] REDO de INSERT ya presente (idempotente): ${sql}`);
+        } else {
+          console.warn(`[RECOVERY] applyChange fallo (${target} ${entry.op}) en ${table}: ${err}`);
+        }
       } else {
-        console.debug(`Recovery applyChange ok [${target}] [${entry.op}]: ${sql}`);
+        console.debug(`[RECOVERY] applyChange ok [${target}] [${entry.op}]: ${sql}`);
       }
     }
   }

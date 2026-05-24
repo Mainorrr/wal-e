@@ -162,6 +162,7 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
   const triggerCrash = useCallback(async () => {
     const result = await window.api.triggerCrash();
     setLastCrash({ droppedPages: result.droppedPages, activeTids: result.activeTids, at: Date.now() });
+    setSelectedTid(null);
     await refreshStatus();
     return { droppedPages: result.droppedPages, activeTids: result.activeTids };
   }, [refreshStatus]);

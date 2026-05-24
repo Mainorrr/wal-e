@@ -130,17 +130,57 @@ export function setupIPCHandlers(): void {
     }
 
     console.log(`Received query execution request for engine ${engineId}: ${query} (tid: ${tid})`);
-    console.log(isMutationQuery(query) ? 'Identified as mutation query' : 'Identified as non-mutation query');
-    if (isMutationQuery(query) && tid) {
+
+    const statements = splitSqlStatements(query);
+
+    if (statements.length > 1) {
+      const results: unknown[] = [];
+      let anyMutation = false;
+      let lastCommand: string | undefined;
+      let lastRowCount: number | undefined;
+      for (const stmt of statements) {
+        const isMut = isMutationQuery(stmt);
+        console.log(`Statement (${isMut ? 'mutation' : 'non-mutation'}): ${stmt}`);
+        if (isMut && tid) {
+          try {
+            const mutationData = await transactionManager.executeMutationFromQuery(tid, engineId, stmt);
+            results.push(mutationData);
+            anyMutation = true;
+          } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            return { success: false, error: `Statement failed: ${stmt}\n${message}` };
+          }
+        } else {
+          const r = await engine.executeQuery(stmt);
+          if (!r.success) {
+            return { success: false, error: `Statement failed: ${stmt}\n${r.error}` };
+          }
+          results.push(r.data);
+          lastCommand = r.command;
+          lastRowCount = r.rowCount;
+        }
+      }
+      return {
+        success: true,
+        data: results[results.length - 1],
+        isMutation: anyMutation,
+        command: lastCommand,
+        rowCount: lastRowCount,
+      };
+    }
+
+    const single = statements[0] ?? query;
+    console.log(isMutationQuery(single) ? 'Identified as mutation query' : 'Identified as non-mutation query');
+    if (isMutationQuery(single) && tid) {
       try {
-        const mutationData = await transactionManager.executeMutationFromQuery(tid, engineId, query);
+        const mutationData = await transactionManager.executeMutationFromQuery(tid, engineId, single);
         return { success: true, data: mutationData, isMutation: true };
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         return { success: false, error: message };
       }
     }
-    return engine.executeQuery(query);
+    return engine.executeQuery(single);
   });
 
   ipcMain.handle('system:crash', async () => {
@@ -192,4 +232,33 @@ export function setupIPCHandlers(): void {
 
     return { success: true };
   });
+}
+function splitSqlStatements(query: string): string[] {
+  const statements: string[] = [];
+  let current = "";
+  let inQuote = false;
+  let quoteChar = "";
+  const isMongoLike = /^\s*db\./.test(query);
+  if (isMongoLike) return [query.trim()].filter(Boolean);
+  for (let i = 0; i < query.length; i++) {
+    const c = query[i];
+    if (!inQuote && (c === "'" || c === `"`)) {
+      inQuote = true;
+      quoteChar = c;
+      current += c;
+    } else if (inQuote && c === quoteChar) {
+      inQuote = false;
+      quoteChar = "";
+      current += c;
+    } else if (!inQuote && c === ";") {
+      const trimmed = current.trim();
+      if (trimmed) statements.push(trimmed);
+      current = "";
+    } else {
+      current += c;
+    }
+  }
+  const tail = current.trim();
+  if (tail) statements.push(tail);
+  return statements;
 }

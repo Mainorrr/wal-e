@@ -9,7 +9,7 @@ import { CreateTransactionModal } from '../TopBar/CreateTransactionModal';
 export function QueryEditor() {
   const { activeEngineId, engines } = useEngine();
   const { allTransactions, selectedTid, setSelectedTid } = useTransaction();
-  const [queryResult, setQueryResult] = useState<{ data: unknown; isMutation: boolean } | null>(null);
+  const [queryResult, setQueryResult] = useState<{ data: unknown; isMutation: boolean; command?: string; rowCount?: number } | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   const activeEngine = engines.find((e) => e.id === activeEngineId);
@@ -102,8 +102,8 @@ export function QueryEditor() {
 
 interface QueryEditorBodyProps {
   isMongo: boolean;
-  queryResult: { data: unknown; isMutation: boolean } | null;
-  setQueryResult: (r: { data: unknown; isMutation: boolean } | null) => void;
+  queryResult: { data: unknown; isMutation: boolean; command?: string; rowCount?: number } | null;
+  setQueryResult: (r: { data: unknown; isMutation: boolean; command?: string; rowCount?: number } | null) => void;
 }
 
 function QueryEditorBody({ isMongo, queryResult, setQueryResult }: QueryEditorBodyProps) {
@@ -126,12 +126,18 @@ function QueryEditorBody({ isMongo, queryResult, setQueryResult }: QueryEditorBo
   const handleRun = async () => {
     if (!canRun || !query.trim()) return;
     setError(null);
+    setQueryResult(null);
     try {
       const result = await executeQuery(activeEngineId!, query, selectedTid!);
       if (!result.success) {
         setError(result.error || 'Query failed');
       } else {
-        setQueryResult({ data: result.data, isMutation: result.isMutation || false });
+        setQueryResult({
+          data: result.data,
+          isMutation: result.isMutation || false,
+          command: (result as { command?: string }).command,
+          rowCount: (result as { rowCount?: number }).rowCount,
+        });
       }
     } catch (err) {
       setError((err as Error).message);
@@ -157,7 +163,6 @@ function QueryEditorBody({ isMongo, queryResult, setQueryResult }: QueryEditorBo
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {error && <span className="text-error text-[10px] mr-1">{error}</span>}
           {!canRun && (
             <span className="text-[10px] text-yellow-600 mr-1">Select an active transaction</span>
           )}
@@ -178,7 +183,7 @@ function QueryEditorBody({ isMongo, queryResult, setQueryResult }: QueryEditorBo
         disabled={!canRun}
         placeholder={placeholder}
       />
-      <ResultsTable isMongo={isMongo} queryResult={queryResult} />
+      <ResultsTable isMongo={isMongo} queryResult={queryResult} error={error} />
     </div>
   );
 }
