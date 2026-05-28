@@ -65,7 +65,7 @@ export class TransactionManager {
     const protocol = this.currentProtocol;
     const bufferKey = `${tid}:${mutationData.op}:${Date.now()}`;
 
-    if (protocol === 'No-Undo/Redo' || protocol === 'Undo/Redo') {
+    if (protocol === 'No-Undo/No-Redo' || protocol === 'No-Undo/Redo' || protocol === 'Undo/Redo') {
       this.dirtyPagesBuffer.set(bufferKey, {
         op: mutationData.op,
         table_or_collection: mutationData.table_or_collection || '',
@@ -161,9 +161,9 @@ export class TransactionManager {
     const bufferKey = `${tid}:${mutationData.op}:${Date.now()}`;
 
     if (protocol === 'No-Undo/No-Redo') {
-      await this.flushToDisk(tid, {
-        op: parsed.op,
-        table_or_collection: parsed.tableOrCollection,
+      this.dirtyPagesBuffer.set(bufferKey, {
+        op: mutationData.op,
+        table_or_collection: mutationData.table_or_collection || '',
         before_image: mutationData.before_image,
         after_image: mutationData.after_image,
         parsedSql: buildMutationSql(parsed),
@@ -217,11 +217,14 @@ export class TransactionManager {
 
     const protocol = this.currentProtocol;
 
-    // Regla WAL: el COMMIT debe estar persistido en la bitacora ANTES de
-    // aplicar las paginas sucias al motor. Esto hace que los protocolos
-    // No-Undo/Redo y Undo/Redo sean genuinamente "no-force": si un crash
-    // ocurre entre el COMMIT registrado y el flush, la recuperacion
-    // detecta la TID en redoList y aplica REDO con la after_image.
+    // No-Undo/No-Redo: regla FORCE — todas las paginas sucias deben estar
+    // en disco ANTES de registrar el COMMIT en la bitacora. Esto garantiza
+    // que si el COMMIT aparece en el WAL, los datos ya fueron persistidos,
+    // por lo que REDO nunca es necesario.
+    if (protocol === 'No-Undo/No-Redo') {
+      await this.flushDirtyPages(tid);
+    }
+
     this.wal.writeEntry({
       tid,
       op: 'COMMIT',
@@ -231,6 +234,10 @@ export class TransactionManager {
       protocol: this.currentProtocol,
     });
 
+    // No-Undo/Redo y Undo/Redo: regla NO-FORCE — el COMMIT se registra
+    // ANTES de flusher las paginas sucias. Si un crash ocurre entre el
+    // COMMIT registrado y el flush, la recuperacion detecta la TID en
+    // redoList y aplica REDO con la after_image.
     if (protocol === 'No-Undo/Redo' || protocol === 'Undo/Redo') {
       console.debug(`COMMIT registrado en WAL; aplicando dirty pages para ${tid}...`);
       await this.flushDirtyPages(tid);

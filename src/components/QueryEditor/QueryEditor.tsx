@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CodeDisplay } from './CodeDisplay';
+import { PolicyPanel } from './PolicyPanel';
 import { ResultsTable } from './ResultsTable';
 import { useEngine } from '../../context/EngineContext';
 import { useTransaction } from '../../context/TransactionContext';
@@ -151,39 +152,42 @@ function QueryEditorBody({ isMongo, queryResult, setQueryResult }: QueryEditorBo
     : "Select a transaction to enable query editing...";
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-surface-container-low border border-outline-variant rounded-lg overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2 bg-surface-container border-b border-outline-variant">
-        <div className="flex items-center gap-4">
-          <span className="text-code-sm font-code-md text-on-surface-variant">
-            {isMongo ? 'aggregate_metrics.js' : 'query_active_node_01.sql'}
-          </span>
-          <div className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-secondary" />
-            <span className="text-[10px] text-secondary font-bold tracking-tighter uppercase">Connected</span>
+    <div className="flex-1 flex gap-gutter min-h-0">
+      <div className="flex-1 flex flex-col min-h-0 bg-surface-container-low border border-outline-variant rounded-lg overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2 bg-surface-container border-b border-outline-variant">
+          <div className="flex items-center gap-4">
+            <span className="text-code-sm font-code-md text-on-surface-variant">
+              {isMongo ? 'aggregate_metrics.js' : 'query_active_node_01.sql'}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-secondary" />
+              <span className="text-[10px] text-secondary font-bold tracking-tighter uppercase">Connected</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {!canRun && (
+              <span className="text-[10px] text-yellow-600 mr-1">Select an active transaction</span>
+            )}
+            <button
+              onClick={handleRun}
+              disabled={!canRun || !query.trim()}
+              className={`flex items-center gap-1 px-3 py-1 text-[11px] font-bold rounded transition-opacity ${canRun && query.trim() ? 'bg-primary-container text-on-primary-container hover:opacity-90' : 'bg-surface-container text-outline opacity-50 cursor-not-allowed'}`}
+              title="Execute query"
+            >
+              <MaterialSymbol icon="play_arrow" size={16} />
+              Run
+            </button>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {!canRun && (
-            <span className="text-[10px] text-yellow-600 mr-1">Select an active transaction</span>
-          )}
-          <button
-            onClick={handleRun}
-            disabled={!canRun || !query.trim()}
-            className={`flex items-center gap-1 px-3 py-1 text-[11px] font-bold rounded transition-opacity ${canRun && query.trim() ? 'bg-primary-container text-on-primary-container hover:opacity-90' : 'bg-surface-container text-outline opacity-50 cursor-not-allowed'}`}
-            title="Execute query"
-          >
-            <MaterialSymbol icon="play_arrow" size={16} />
-            Run
-          </button>
-        </div>
+        <CodeDisplay
+          value={query}
+          onChange={setQuery}
+          disabled={!canRun}
+          placeholder={placeholder}
+        />
+        <ResultsTable isMongo={isMongo} queryResult={queryResult} error={error} />
       </div>
-      <CodeDisplay
-        value={query}
-        onChange={setQuery}
-        disabled={!canRun}
-        placeholder={placeholder}
-      />
-      <ResultsTable isMongo={isMongo} queryResult={queryResult} error={error} />
+      <PolicyPanel />
     </div>
   );
 }
